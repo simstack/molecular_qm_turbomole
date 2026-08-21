@@ -3,8 +3,5 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
+molecular_qm_turbomole/_version.py
 
-# Local junctions to sister clones (not submodules; do not commit)
-/simstack
-/molecular_qm_models
-/molecular_qm_util

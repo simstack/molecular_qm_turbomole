@@ -1,6 +1,6 @@
 [project]
 name = "molecular_qm_turbomole"
-version = "0.1.0"
+dynamic = ["version"]
 description = "TURBOMOLE capabilities for molecular quantum mechanics within the Simstack framework"
 readme = "molecular_qm_turbomole/README.md"
 requires-python = ">=3.12, <3.13"
@@ -18,8 +18,19 @@ dependencies = [
 molecular_qm_turbomole = "molecular_qm_turbomole"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.1.0.dev0"
+
+[tool.hatch.version.raw-options]
+version_scheme = "release-branch-semver"
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "molecular_qm_turbomole/_version.py"
 
 [tool.hatch.metadata]
 allow-direct-references = true
