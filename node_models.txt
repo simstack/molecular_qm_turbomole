@@ -1,0 +1,261 @@
+================================================================================
+Node: get_file
+Function Mapping: simstack.methods.get_file.get_file
+Description: Retrieves a file from a given source and saves it to the specified target path.
+
+This function is responsible for handling the retrieval of files from a
+FileStack source and storing them to a local resource's target location.
+It will update the FileStack
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_getter_args     | simstack.models.files.FileGetterArgs               | The arguments for the file retrieval operation.
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.models.files.FileStack                    | FileStack: The modified FileStack with the local resource.
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: archive_upload
+Function Mapping: simstack.methods.upload_helpers.archive_upload
+Description: Asynchronously processes a file upload, extracts files from supported archive formats
+(.zip, .tar, .tar.gz), and returns a list of extracted files wrapped in FileStack
+instances. If the file is not an archive, it is added as-is to the output.
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_upload          | simstack.models.files.FileStack                    | The uploaded file to be processed.
+    **kwargs: Additional keyword arguments.
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: file_list_upload_all
+Function Mapping: simstack.methods.upload_helpers.file_list_upload_all
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_stack           | simstack.models.files.FileStack                    | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  - simstack.methods.upload_helpers.archive_upload
+  - simstack.methods.upload_helpers.file_list_upload_test
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: file_list_upload_test
+Function Mapping: simstack.methods.upload_helpers.file_list_upload_test
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_list            | simstack.models.file_list.FileListModel            | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: archive_file
+Function Mapping: simstack.methods.archive_files.archive_file
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_stack           | simstack.models.files.FileStack                    | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: archive_files
+Function Mapping: simstack.methods.archive_files.archive_files
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file_list            | simstack.models.file_list.FileList                 | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: archive_node
+Function Mapping: simstack.methods.archive_files.archive_node
+Description: Archives FileStacks matching the criteria in archive_config and deletes local instances upon success.
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  archive_config       | simstack.methods.archive_files.ArchiveConfig       | Configuration for the archive process.
+    **kwargs: Additional arguments.
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  - simstack.methods.archive_files.archive_files
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: async_adder
+Function Mapping: simstack.methods.multiple_executor.async_adder
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  arg                  | simstack.models.base_types.BinaryOperationInput    | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.models.base_types.FloatData               | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: multiple_executor
+Function Mapping: simstack.methods.multiple_executor.multiple_executor
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  executor             | simstack.methods.multiple_executor.MultipleExecutorInput | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.methods.multiple_executor.MultipleExecutorOutput | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: multiple_executor_adder
+Function Mapping: simstack.methods.multiple_executor.multiple_executor_adder
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  arg1                 | simstack.models.base_types.BinaryOperationInput    | None                
+  arg2                 | simstack.models.base_types.BinaryOperationInput    | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.models.base_types.BinaryOperationInput    | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: molecule_list_from_file
+Function Mapping: molecular_qm_models.molecule_list_from_file.molecule_list_from_file
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file                 | simstack.models.files.FileStack                    | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: switch_git
+Function Mapping: simstack.methods.switch_git.switch_git
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  branch               | simstack.models.base_types.StringData              | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | builtins.bool                                      | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: turbomole2
+Function Mapping: molecular_qm_turbomole.nodes.turbomole2.turbomole2
+Description: Refactored TURBOMOLE node focused on single-point and geometry optimization.
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  qm_input             | molecular_qm_turbomole.models.turbomole_input.TurbomoleQMInput2 | Calculation settings and molecule.
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | molecular_qm_models.qm_result.QMResult             | : Final energy, structure, and convergence status.
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: database_from_molecules
+Function Mapping: molecular_qm_models.make_database_from_molecules.database_from_molecules
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  molecule_list        | molecular_qm_models.molecule.MoleculeList          | None                
+  name                 | simstack.models.base_types.StringData              | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+

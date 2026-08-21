@@ -1,0 +1,251 @@
+from enum import Enum
+from typing import List, Optional
+
+from odmantic import EmbeddedModel, Field, Model, Reference
+from pydantic import field_validator, model_validator
+
+from molecular_qm_models.density_functional import Functional
+from molecular_qm_models.molecule import Molecule
+from molecular_qm_turbomole.lib.control_utils import parse_control_groups
+from simstack.models import simstack_model
+from simstack.util.cleaned_json_schema import cleaned_json_schema
+from simstack.util.generate_ui_schema import generate_ui_schema
+
+TURBOMOLE_DEFAULT_BASIS_SET = "def2-SVP"
+TURBOMOLE_DEFAULT_GRID_SIZE = "m3"
+TURBOMOLE_DEFAULT_SCFCONV = 8
+
+TURBOMOLE_BASIS_SET_VALUES: List[str] = [
+    "SV",
+    "SV(P)",
+    "SVP",
+    "TZVP",
+    "TZVPP",
+    "QZVP",
+    "QZVPP",
+    "def2-SV(P)",
+    "def2-SVP",
+    "def2-TZVP",
+    "def2-TZVPP",
+    "def2-SVPD",
+    "def2-TZVPD",
+    "def2-QZVPD",
+    "def2-TZVPPD",
+    "def2-QZVPPD",
+    "cc-pVDZ",
+    "cc-pVTZ",
+    "cc-pVQZ",
+    "aug-cc-pVDZ",
+    "aug-cc-pVTZ",
+    "aug-cc-pVQZ",
+]
+
+TURBOMOLE_GRID_SIZE_VALUES: List[str] = [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "m3",
+    "m4",
+    "m5",
+    "1a",
+    "2a",
+    "3a",
+    "4a",
+    "5a",
+    "6a",
+    "7a",
+]
+
+
+class SolventModeEnum(str, Enum):
+    NONE = "none"
+    IMPLICIT = "implicit"
+    EXPLICIT = "explicit"
+
+
+@simstack_model
+class TurbomoleBasisSet2(EmbeddedModel):
+    """Turbomole basis-set payload without legacy aux-basis UI surface."""
+
+    field_name: str = "TurbomoleBasisSet2"
+    basis_set: str = Field(
+        TURBOMOLE_DEFAULT_BASIS_SET,
+        json_schema_extra={"enum": TURBOMOLE_BASIS_SET_VALUES},
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_fieldname(cls, data):
+        if isinstance(data, dict) and "field_name" not in data:
+            data["field_name"] = cls.__name__
+        return data
+
+
+@simstack_model
+class TurbomoleQMInput2(Model):
+    """
+    Clean TURBOMOLE input for turbomole2.
+
+    Field surface mirrors the historical TurbomoleQMInput (without GW), but
+    validators do not infer, sync, or rewrite user-provided values.
+    """
+
+    field_name: str = "TurbomoleQMInput2"
+    model_config = {"extra": "forbid"}
+
+    molecule: Molecule = Reference()
+    name: str = Field("Title", json_schema_extra={"description": "name of the calculation"})
+    charge: int = Field(0, json_schema_extra={"description": "net charge of the molecule"})
+    states: int = Field(
+        0, json_schema_extra={"description": "number of states to calculate, zero for ground state only"}
+    )
+    focus_state: int = Field(1, json_schema_extra={"description": "state of focus"})
+    multiplicity: int = Field(1, json_schema_extra={"description": "singlet,triplet,....."})
+    gridsize: str = Field(
+        TURBOMOLE_DEFAULT_GRID_SIZE,
+        json_schema_extra={
+            "enum": TURBOMOLE_GRID_SIZE_VALUES,
+            "description": f"TURBOMOLE DFT integration grid size. Default: {TURBOMOLE_DEFAULT_GRID_SIZE}.",
+            "title": "gridsize",
+        },
+    )
+    scfconv: int = Field(
+        TURBOMOLE_DEFAULT_SCFCONV,
+        json_schema_extra={
+            "description": (
+                f"TURBOMOLE SCF convergence threshold exponent ($scfconv). "
+                f"Default: {TURBOMOLE_DEFAULT_SCFCONV}."
+            ),
+            "title": "scfconv",
+        },
+    )
+    open_shell_calculation: bool = Field(
+        False, json_schema_extra={"description": "Open shell calculation"}
+    )
+    active_electrons: int = Field(0, json_schema_extra={"description": "number of active electrons"})
+    active_orbitals: int = Field(0, json_schema_extra={"description": "number of active orbitals"})
+    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
+    functional: Functional
+    gradients: bool = Field(
+        False, json_schema_extra={"description": "Calculate gradients (forces) for the molecule"}
+    )
+    optimization: bool = Field(
+        False, json_schema_extra={"description": "Perform geometry optimization"}
+    )
+    use_desy: bool = Field(
+        False,
+        json_schema_extra={
+            "description": (
+                "Run the define 'desy' step to detect symmetry automatically and "
+                "symmetrize the imported geometry."
+            )
+        },
+    )
+    frequencies: bool = Field(False, json_schema_extra={"description": "Calculate frequencies"})
+    hyperpolarizability: bool = Field(
+        False,
+        json_schema_extra={
+            "description": "Calculate first hyperpolarizability (β) using escf + hyperpols"
+        },
+    )
+    hyperpol_frequency_nm: float = Field(
+        0.0,
+        json_schema_extra={
+            "description": "Wavelength in nm for dynamic hyperpolarizability (0 = static/DC)"
+        },
+    )
+    edelt: Optional[float] = Field(
+        default=None,
+        json_schema_extra={
+            "description": "Electric-field step for hyperpolarizability numerical derivatives.",
+            "title": "edelt",
+        },
+    )
+    solvent_mode: SolventModeEnum = Field(
+        SolventModeEnum.NONE,
+        json_schema_extra={
+            "enum": [e.value for e in SolventModeEnum],
+            "description": (
+                "Solvent configuration mode. Use implicit for a named solvent, "
+                "explicit for manual continuum parameters, or none for gas phase."
+            ),
+        },
+    )
+    solvent: str = "None"
+    solvent_epsilon: Optional[float] = Field(
+        default=None,
+        json_schema_extra={
+            "description": "Explicit dielectric constant for continuum solvent calculations."
+        },
+    )
+    solvent_refind: Optional[float] = Field(
+        default=None,
+        json_schema_extra={"description": "Explicit refractive index for continuum solvent."},
+    )
+    print_level: int = Field(1, json_schema_extra={"description": "Print level for the calculation, 0-4"})
+    control_groups: List[str] = Field(
+        default_factory=list,
+        json_schema_extra={
+            "description": (
+                "Extra TURBOMOLE control data groups appended after define. "
+                "Each entry must be one '$name …' group (e.g. '$freeze\\n atoms 1-3')."
+            )
+        },
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_fieldname(cls, data):
+        if isinstance(data, dict) and "field_name" not in data:
+            data["field_name"] = cls.__name__
+        return data
+
+    @field_validator("control_groups")
+    @classmethod
+    def validate_control_groups(cls, value: List[str]) -> List[str]:
+        parse_control_groups(value)
+        return value
+
+    @classmethod
+    def json_schema(cls, recursive=True):
+        schema = cleaned_json_schema(cls)
+        schema["title"] = cls.__name__
+        return schema
+
+    @classmethod
+    def ui_schema(cls):
+        ui_schema = generate_ui_schema(cls)
+        ui_schema["ui:order"] = [
+            "molecule",
+            "states",
+            "focus_state",
+            "charge",
+            "multiplicity",
+            "gridsize",
+            "scfconv",
+            "basis_set",
+            "functional",
+            "solvent_mode",
+            "solvent",
+            "solvent_epsilon",
+            "solvent_refind",
+            "gradients",
+            "optimization",
+            "use_desy",
+            "open_shell_calculation",
+            "frequencies",
+            "hyperpolarizability",
+            "hyperpol_frequency_nm",
+            "edelt",
+            "id",
+            "active_orbitals",
+            "active_electrons",
+            "print_level",
+            "control_groups",
+        ]
+        ui_schema.setdefault("ui:options", {})["ui:foldable"] = True
+        return ui_schema

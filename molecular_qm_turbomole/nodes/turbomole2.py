@@ -1,0 +1,202 @@
+import logging
+import math
+import re
+from pathlib import Path
+
+from molecular_qm_models.molecule import MoleculeList
+from molecular_qm_models.qm_result import QMResult
+from molecular_qm_turbomole.lib.control_utils import append_control_groups
+from molecular_qm_turbomole.lib.env import (
+    build_define_script,
+    build_ground_state_script,
+    prepend_tm_env,
+)
+from molecular_qm_turbomole.lib.input_writer import (
+    TurbomoleInputWriter,
+    should_use_ri,
+)
+from molecular_qm_turbomole.lib.output_parser import (
+    TurbomoleOutputParser,
+    write_final_geometry_xyz,
+)
+from molecular_qm_turbomole.models.turbomole_input import TurbomoleQMInput2
+from simstack.core.context import context
+from simstack.core.definitions import TaskStatus
+from simstack.core.node import node
+from simstack.core.simstack_result import SimstackResult
+from simstack.models import Parameters
+from simstack.models.files import FileStack
+from simstack.models.parameters import SlurmParameters
+
+logger = logging.getLogger("Turbomole2Node")
+
+slurm_parameters = SlurmParameters(
+    nodes=1,
+    tasks=1,
+    tasks_per_node=8,
+    cpus_per_task=1,
+    mem="2G",
+    time="0:10:00",
+)
+
+parameters = Parameters(
+    resource="int-nano",
+    queue="slurm-queue",
+    slurm_parameters=slurm_parameters,
+    force_rerun=True,
+)
+
+OUTPUT_FILES = (
+    "control",
+    "coord",
+    "energy",
+    "define.inp",
+    "define.out",
+    "ridft.out",
+    "dscf.out",
+    "jobex.out",
+    "job.last",
+    "final_geometry.xyz",
+    "gradient",
+)
+
+
+def _validate_request(qm_input: TurbomoleQMInput2) -> None:
+    atoms = getattr(qm_input.molecule, "atoms", None)
+    if not atoms:
+        raise ValueError(
+            "TURBOMOLE requires a non-empty molecule with 3D coordinates."
+        )
+    for index, atom in enumerate(atoms, start=1):
+        element = str(getattr(atom, "element", "") or "").strip()
+        if not re.fullmatch(r"[A-Za-z]{1,3}", element):
+            raise ValueError(f"Atom {index} has an invalid element symbol {element!r}.")
+        coordinates = (atom.x, atom.y, atom.z)
+        try:
+            finite = all(math.isfinite(float(value)) for value in coordinates)
+        except (TypeError, ValueError):
+            finite = False
+        if not finite:
+            raise ValueError(
+                f"Atom {index} ({element}) has non-finite coordinates: {coordinates!r}."
+            )
+
+
+def _collect_output_files() -> list[str]:
+    return [name for name in OUTPUT_FILES if Path(name).exists()]
+
+
+@node(parameters=parameters)
+async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
+    """
+    Refactored TURBOMOLE node focused on single-point and geometry optimization.
+
+    Parameters:
+        qm_input (TurbomoleQMInput2): Calculation settings and molecule.
+
+    SimstackResult:
+        result (QMResult): Final energy, structure, and convergence status.
+    """
+    node_runner = kwargs["node_runner"]
+    node_runner.info("Starting turbomole2 calculation")
+    node_runner.info(
+        "Request summary: "
+        f"optimization={qm_input.optimization}, "
+        f"gradients={qm_input.gradients}, "
+        f"basis={qm_input.basis_set.basis_set}, "
+        f"functional={qm_input.functional.functional.value}, "
+        f"gridsize={qm_input.gridsize}, "
+        f"scfconv={qm_input.scfconv}"
+    )
+
+    try:
+        _validate_request(qm_input)
+    except Exception as exc:
+        return node_runner.fail(f"Invalid TURBOMOLE input settings: {exc}")
+
+    try:
+        TurbomoleInputWriter(qm_input).write_files()
+        node_runner.info("Input files generated")
+    except Exception as exc:
+        return node_runner.fail(f"Error creating Turbomole input files: {exc}")
+
+    try:
+        define_script = prepend_tm_env(build_define_script())
+        if not node_runner.subprocess("turbomole_define", define_script):
+            raise RuntimeError("Execution of Turbomole define failed")
+        if not Path("./control").exists():
+            raise RuntimeError(
+                "Turbomole define produced no 'control' file. Check turbomole_define.log."
+            )
+
+        if qm_input.control_groups:
+            appended = append_control_groups("control", qm_input.control_groups)
+            node_runner.info(
+                "Appended control_groups: "
+                + ", ".join(group[0].split()[0] for group in appended)
+            )
+
+        run_script = prepend_tm_env(
+            build_ground_state_script(
+                optimization=bool(qm_input.optimization),
+                use_ri=should_use_ri(qm_input),
+                gradients=bool(qm_input.gradients),
+            )
+        )
+        if not node_runner.subprocess("turbomole_exe", run_script):
+            raise RuntimeError(
+                "Turbomole ground-state calculation failed. Check turbomole_exe.log."
+            )
+
+        if not Path("./control").exists():
+            raise RuntimeError("Turbomole run produced no 'control' file.")
+        if not (
+            Path("./energy").exists()
+            or Path("./ridft.out").exists()
+            or Path("./dscf.out").exists()
+            or Path("./job.last").exists()
+        ):
+            raise RuntimeError(
+                "Turbomole run finished but key outputs are missing "
+                "(energy/ridft.out/dscf.out/job.last)."
+            )
+
+        node_runner.info("Parsing output files")
+        tout = TurbomoleOutputParser(directory=".", node_runner=node_runner)
+        tout.parse()
+
+        if tout.final_energy is None:
+            return node_runner.fail("Failed to parse energy from Turbomole output")
+
+        molecule_list = MoleculeList()
+        if qm_input.optimization and tout.final_structure:
+            molecule_list.add_molecule(tout.final_structure)
+
+        written_xyz = write_final_geometry_xyz(tout.final_structure)
+        if written_xyz is not None:
+            node_runner.info(f"Wrote final geometry XYZ file: {written_xyz}")
+
+        qm_result = QMResult(
+            scf_converged=tout.properly_terminated,
+            final_energy=tout.final_energy,
+            energies=tout.energies,
+            final_structure=tout.final_structure if tout.final_structure else qm_input.molecule,
+            structures=molecule_list,
+            task_status=TaskStatus.COMPLETED,
+        )
+        node_runner.result = qm_result
+
+        for out_file in _collect_output_files():
+            file_stack = FileStack.from_local_file(
+                out_file, in_memory=True, is_hashable=True, secure_source=True
+            )
+            await context.db.save(file_stack)
+            qm_result.files.append(file_stack)
+
+        node_runner.info(
+            f"turbomole2 completed successfully with energy: {tout.final_energy}"
+        )
+        return node_runner.succeed()
+    except Exception as exc:
+        node_runner.error(str(exc))
+        return node_runner.fail(f"Turbomole calculation failed: {exc}")

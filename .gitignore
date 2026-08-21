@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local junctions to sister clones (not submodules; do not commit)
+/simstack
+/molecular_qm_models
+/molecular_qm_util

@@ -1,0 +1,423 @@
+active_dirs = ["applications",
+    "examples",
+    "molecular_qm_models",
+    "molecular_qm_util",
+    "molecular_qm_psi4",
+    "molecular_qm_graci",
+    "molecular_qm_fcctools",
+    "molecular_qm_orca",
+    "molecular_qm_dftb"
+]
+#
+# Section local and self
+#
+[local]
+os = "windows"
+[local.setup]
+scripts = [
+    "set USER=%USERNAME%",
+    "set SIMSTACK_DIR=%CD%"
+]
+tmp_base_dir = "set TMP_BASE_DIR=C:\\Users\\bj7610\\AppData\\Local\\Temp"
+[local.post-processing]
+scratch_cleanup = true
+
+[local.program.gromacs_version]
+docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+
+[local.program.pdb2gmx]
+docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+
+
+# Section Int-Nano
+#
+[big]
+docker_registry = "167.233.117.31:5000"
+[big.setup]
+tmp_base_dir = """
+if [ -n "${USER}" ]; then
+    TMP_BASE_DIR="/scratch/${USER}"
+else
+    TMP_BASE_DIR="${TMPDIR:-/tmp/${USER}}"
+fi
+echo TMP_BASE_DIR=$TMP_BASE_DIR
+"""
+[big.post-processing]
+scratch_cleanup = true
+
+[big.program]
+psi4_calculator.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+molecule_snapshot_inspector.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+multistep_optimizer.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+psi4_thermochemistry.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+delta_g_table.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_basis_sets.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_functionals.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_temperature.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+geometric-neb.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+interpolate_molecules.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+relax_harmonic.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+crest.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+xtb_molecule_list.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+xtb_optimize_molecule_list.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compute_energy.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+classify_ring_conformers.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+slurm_adder.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+
+graci_dftmrci.docker_image = "docker.io/library/molecular-qm-graci:latest"
+dftb_calculator.docker_image = "docker.io/library/molecular-qm-dftb:latest"
+dftb_list_calculator.docker_image = "docker.io/library/molecular-qm-dftb:latest"
+fcclasses3.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+gen_fcc_state.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+gen_fcc_dipfile.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+reconvolute_td.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+reconvolute_ti.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+convolute_rr.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+
+gmx_solvate.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_editconf.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_grompp.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_genion.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_mdrun.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_energy.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+get_file.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+
+
+[local.program]
+psi4_calculator.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+molecule_snapshot_inspector.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+multistep_optimizer.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+psi4_thermochemistry.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+delta_g_table.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_basis_sets.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_functionals.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compare_conformers_over_temperature.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+geometric-neb.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+interpolate_molecules.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+relax_harmonic.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+crest.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+xtb_molecule_list.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+xtb_optimize_molecule_list.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+compute_energy.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+classify_ring_conformers.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+slurm_adder.docker_image = "docker.io/library/molecular-qm-psi4:latest"
+
+graci_dftmrci.docker_image = "docker.io/library/molecular-qm-graci:latest"
+dftb_calculator.docker_image = "docker.io/library/molecular-qm-dftb:latest"
+dftb_list_calculator.docker_image = "docker.io/library/molecular-qm-dftb:latest"
+fcclasses3.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+gen_fcc_state.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+gen_fcc_dipfile.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+reconvolute_td.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+reconvolute_ti.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+convolute_rr.docker_image = "docker.io/library/molecular-qm-fcctools:latest"
+
+gmx_solvate.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_editconf.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_grompp.docker_image = "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_genion.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_mdrun.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+gmx_energy.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+get_file.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
+
+[local.program.resource_specific_file_test]
+use_tmp = false
+run_command = "echo 'hello world' > output.txt"
+
+[local.program.resource_specific_file_test_w_tmp]
+use_tmp = true
+run_command = "echo 'hello world' > output.txt"
+
+[local.program.orca]
+use_tmp = false
+run_command = "orca orca.inp > orca.out"
+
+# VASP binary must be on PATH (licensed; not shipped). Use vasp_ncl when LSORBIT.
+[local.program.vasp]
+use_tmp = false
+run_command = "vasp_std"
+
+[local.program.simstack-crest]
+use_tmp = false
+# On local resources we default to Docker instead of Apptainer. The
+# conformer-generation node will construct the final command as:
+#   docker run --rm -v "<cwd>:<bind_dir>" <docker_image>
+use_docker_instead_of_apptainer = true
+# If omitted, docker_image defaults to "simstack-crest:local"; here we
+# set it explicitly for clarity.
+docker_image = "simstack-crest:local"
+bind_dir = "/work"
+ga_run_command="python /opt/app/run_ga.py"
+obabel_run_command="python /opt/apt/run_openbabel.py"
+rdkit_run_command="python /opt/apt/run_rdkit.py"
+crest_run_command="python /opt/apt/run_crest.py"
+#
+# Section Int-Nano
+#
+[int-nano]
+[int-nano.setup]
+tmp_base_dir = """
+if [ -n "${USER}" ]; then
+    TMP_BASE_DIR="/scratch/${USER}"
+else
+    TMP_BASE_DIR="${TMPDIR:-/tmp/${USER}}"
+fi
+echo TMP_BASE_DIR=$TMP_BASE_DIR
+"""
+[int-nano.post-processing]
+scratch_cleanup = true
+
+[int-nano.program.wait_node]
+use_tmp= true
+run_command = "echo 'hello world' > tmp.txt"
+
+[int-nano.program.orca]
+use_tmp = false
+scripts=[ "source ~/.bashrc", "module load orca" ]
+run_command = "$ORCA_HOME/orca orca.inp > orca.out"
+
+# MPI ranks come from the Slurm allocation (parent_parameters.slurm_parameters).
+[int-nano.program.vasp]
+use_tmp = false
+scripts = [ "source ~/.bashrc", "module load vasp" ]
+run_command = "srun vasp_std"
+
+[int-nano.program.simstack-crest]
+use_tmp = false
+# Preferred Apptainer-based configuration for the CREST/simstack-crest
+# conformer-generation container on int-nano. The Python node will
+# construct the final command as:
+#   <apptainer> run --bind "<cwd>:<bind_dir>" <image>
+use_docker_instead_of_apptainer = false
+apptainer = "/usr/bin/apptainer"
+image = "/shared/software/simstack2/containers/simstack-confgen_latest.sif"
+# Optional; defaults to "/work" if omitted. Kept explicit here for
+# clarity and to match the existing container setup.
+bind_dir = "/work"
+ga_run_command="python /opt/app/run_ga.py"
+obabel_run_command="python /opt/apt/run_openbabel.py"
+rdkit_run_command="python /opt/apt/run_rdkit.py"
+crest_run_command="python /opt/apt/run_crest.py"
+
+[int-nano.program]
+compute_energy.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+geometric-neb.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+interpolate_molecules.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+relax_harmonic.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+crest.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+xtb_molecule_list.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+xtb_optimize_molecule_list.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+classify_ring_conformers.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+slurm_adder.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+compare_conformers.docker_image =  "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+compare_conformers_over_basis_sets.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+compare_conformers_over_functionals.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+compare_conformers_over_temperature.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+delta_g_table.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+psi4_thermochemistry.docker_image =  "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+molecule_snapshot_inspector.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+multistep_optimizer.docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+
+compute_energy.docker_cmd = "apptainer"
+geometric-neb.docker_cmd = "apptainer"
+interpolate_molecules.docker_cmd = "apptainer"
+relax_harmonic.docker_cmd = "apptainer"
+crest.docker_cmd = "apptainer"
+xtb_molecule_list.docker_cmd = "apptainer"
+xtb_optimize_molecule_list.docker_cmd = "apptainer"
+classify_ring_conformers.docker_cmd = "apptainer"
+slurm_adder.docker_cmd = "apptainer"
+compare_conformers.docker_cmd = "apptainer"
+compare_conformers_over_basis_sets.docker_cmd = "apptainer"
+compare_conformers_over_functionals.docker_cmd = "apptainer"
+compare_conformers_over_temperature.docker_cmd = "apptainer"
+delta_g_table.docker_cmd = "apptainer"
+psi4_thermochemistry.docker_cmd = "apptainer"
+molecule_snapshot_inspector.docker_cmd = "apptainer"
+multistep_optimizer.docker_cmd = "apptainer"
+
+[int-nano.program.psi4_calculator]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.ts_search]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_psi4.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.graci_dftmrci]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_graci.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.dftb_calculator]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_dftb.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.dftb_list_calculator]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_dftb.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.fcclasses3]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.gen_fcc_state]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.gen_fcc_dipfile]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.reconvolute_td]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.reconvolute_ti]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.convolute_rr]
+docker_image = "/shared/software/simstack2/containers/molecular_qm_fcctools.sif"
+docker_cmd = "apptainer"
+
+[int-nano.program.resource_specific_file_test]
+use_tmp = false
+run_command = "echo 'hello world' > output.txt"
+
+[int-nano.program.resource_specific_file_test_w_tmp]
+use_tmp = true
+run_command = "echo 'hello world' > output.txt"
+
+#
+# Section Int-Nano-Jinja (mirrors int-nano resource configuration)
+#
+[int-nano-jinja]
+[int-nano-jinja.setup]
+tmp_base_dir = "TMP_BASE_DIR=\"/tmp/${USER}\""
+[int-nano-jinja.post-processing]
+scratch_cleanup = true
+
+
+[int-nano-jinja.program.orca]
+use_tmp = false
+scripts=[ "source ~/.bashrc", "module load orca" ]
+run_command = "$ORCA_HOME/orca orca.inp > orca.out"
+
+[int-nano-jinja.program.vasp]
+use_tmp = false
+scripts = [ "source ~/.bashrc", "module load vasp" ]
+run_command = "srun vasp_std"
+
+[int-nano-jinja.program.simstack-crest]
+use_tmp = false
+# Preferred Apptainer-based configuration for the CREST/simstack-crest
+# conformer-generation container on int-nano-jinja. The Python node will
+# construct the final command as:
+#   <apptainer> run --bind "<cwd>:<bind_dir>" <image>
+use_docker_instead_of_apptainer = false
+apptainer = "/usr/bin/apptainer"
+image = "/shared/software/simstack2/containers/simstack-confgen_latest.sif"
+# Optional; defaults to "/work" if omitted. Kept explicit here for
+# clarity and to match the existing container setup.
+bind_dir = "/work"
+ga_run_command="python /opt/app/run_ga.py"
+obabel_run_command="python /opt/apt/run_openbabel.py"
+rdkit_run_command="python /opt/apt/run_rdkit.py"
+crest_run_command="python /opt/apt/run_crest.py"
+
+
+[int-nano-jinja.program.resource_specific_file_test]
+use_tmp = false
+run_command = "echo 'hello world' > output.txt"
+
+[int-nano-jinja.program.resource_specific_file_test_w_tmp]
+use_tmp = true
+run_command = "echo 'hello world' > output.txt"
+
+[justus]
+[justus.setup]
+scripts = [
+    "export MKL_NUM_THREADS=1; export OMP_NUM_THREADS=1"
+]
+tmp_base_dir = """
+if test -n "${SCRATCH}" -a -e "${SCRATCH}" -a -d "${SCRATCH}" -a "${SCRATCH}" != "/scratch" -a "${SCRATCH}" != "/tmp" -a "${SCRATCH}" != "/ramdisk"; then
+  TMP_BASE_DIR="${SCRATCH}"
+else
+  TMP_BASE_DIR="${TMPDIR:-/tmp/${USER}}"
+fi
+"""
+[justus.post-processing]
+scratch_cleanup = true
+
+[horeka]
+[horeka.setup]
+tmp_base_dir = """
+if [ -n "$SCRATCH" ]; then
+    TMP_BASE_DIR="$SCRATCH"
+else
+    TMP_BASE_DIR="/tmp/${USER}"
+fi
+"""
+[horeka.post-processing]
+scratch_cleanup = true
+
+[justus.program.orca]
+use_tmp = true
+environment_modules = ["orca/6.1.1"]
+input_files = ["orca.inp", "orca.gbw", "orca.xyz"]
+output_files = ["orca.log", "orca.gbw"]
+run_command = "$ORCA_HOME/orca orca.inp > orca.out"
+
+[horeka.program.orca_5]
+use_tmp = true
+environment_modules = [""]
+input_files = ["orca.inp", "orca.gbw", "orca.xyz"]
+output_files = ["orca.log", "orca.gbw"]
+run_command = "$ORCA_HOME/orca orca.inp > orca.out"
+manual_env_setting_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi4_1_1/bin:/home/hk-project-p0023945/is2364/soft/orca/orca_5_0_4_linux_x86-64_shared_openmpi411"]
+manual_env_setting_LD_LIBRARY_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi4_1_1/lib/:/home/hk-project-p0023945/is2364/soft/openmpi4_1_1/lib/openmpi:/home/hk-project-p0023945/is2364/soft/orca/orca_5_0_4_linux_x86-64_shared_openmpi411"]
+manual_ORCA_HOME=["/home/hk-project-p0023945/is2364/soft/orca/orca_5_0_4_linux_x86-64_shared_openmpi411/orca"]
+
+
+[horeka.program.orca]
+use_tmp = true
+environment_modules = [""]
+input_files = ["orca.inp", "orca.gbw", "orca.xyz"]
+output_files = ["orca.log", "orca.gbw"]
+run_command = "${ORCA_HOME}/orca orca.inp > orca.out"
+manual_env_setting_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/bin:/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi418"]
+manual_env_setting_LD_LIBRARY_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/lib/:/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/lib/openmpi:/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi411"]
+manual_ORCA_HOME=["/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi418/"]
+
+
+
+[horeka.program.simstack-crest]
+use_tmp = false
+# Preferred Apptainer-based configuration for the CREST/simstack-crest
+# conformer-generation container on int-nano-jinja. The Python node will
+# construct the final command as:
+#   <apptainer> run --bind "<cwd>:<bind_dir>" <image>
+use_docker_instead_of_apptainer = false
+apptainer = "/usr/bin/apptainer"
+image = "/home/hk-project-p0023945/is2364/soft/simstack_containers/config_gen/simstack-confgen_latest.sif"
+# on horeka do not use /scratch (that one exists on the loginnode only) 
+# use the $TMPDIR variable instead - that one changes based on the node
+bind_dir ="$TMPDIR"
+ga_run_command="python /opt/app/run_ga.py"
+obabel_run_command="python /opt/apt/run_openbabel.py"
+rdkit_run_command="python /opt/apt/run_rdkit.py"
+crest_run_command="python /opt/apt/run_crest.py"
+
+[justus.program.gaussian]
+environment_modules = ["chem/gaussian/g16.C.01"]
+program_env = { GAUSS_SCRDIR = "${TMP_WORK_DIR}" }
+input_files = ["gaussian.com"]
+output_files = ["gaussian.log", "gaussian.chk"]
+run_command = "g16 < gaussian.com > gaussian.log 2>&1"
+
+[justus.program.fcc-state]
+input_files = ["fcc_state.in"]
+output_files = ["fcc_state.out"]
+run_command = "echo 'Running FCC State'"
