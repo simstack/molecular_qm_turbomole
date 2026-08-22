@@ -109,6 +109,7 @@ def _collect_output_files() -> list[str]:
 async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
     tracker = OptimizationChartTracker(kwargs)
     last_cycles = 0
+    last_energy_step = 0
     converged = False
     max_opt_cycles = int(qm_input.max_opt_cycles)
     try:
@@ -132,8 +133,16 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
             ok = node_runner.subprocess(subprocess_name, run_script)
             tracker.update_from_directory(".")
             status, error = inspect_geometry_optimization(".")
-            force_flush = status != "continue"
-            await tracker.maybe_flush(force=force_flush)
+            # Persist as soon as the chunk subprocess returns. Do not use
+            # energy-file length as the cycle counter: jobex `-c 10` often
+            # leaves 11 energy records (initial SCF + 10 opt cycles).
+            await tracker.maybe_flush(force=True)
+            if tracker.latest_step:
+                node_runner.info(
+                    f"Wrote optimization chart artifacts after jobex cycles "
+                    f"{last_cycles + 1}-{chunk_end} "
+                    f"({tracker.latest_step} energy record(s))."
+                )
 
             if status == "converged":
                 node_runner.info("Geometry optimization converged.")
@@ -146,12 +155,13 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                     f"Turbomole ground-state calculation failed. Check {subprocess_name}.log."
                 )
 
-            new_cycles = tracker.latest_step
-            if new_cycles <= last_cycles:
+            new_energy_step = tracker.latest_step
+            if new_energy_step <= last_energy_step:
                 raise RuntimeError(
                     "jobex made no progress; energy file did not gain a new cycle."
                 )
-            last_cycles = new_cycles
+            last_energy_step = new_energy_step
+            last_cycles += chunk
         if not converged:
             raise RuntimeError(
                 f"Structure optimization did not converge in {max_opt_cycles} cycles."

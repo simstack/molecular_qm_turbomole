@@ -246,6 +246,55 @@ async def test_run_optimization_chunks_flushes_at_ten_and_twenty(tmp_path, monke
 
 
 @pytest.mark.asyncio
+async def test_run_optimization_chunks_flushes_when_energy_has_initial_scf(tmp_path, monkeypatch):
+    """jobex -c 10 typically leaves 11 energy records (initial SCF + 10 cycles)."""
+    monkeypatch.chdir(tmp_path)
+    flush_steps = []
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        flush_steps.append([row["step"] for row in energy_data])
+        return (MagicMock(name="energy_chart"), MagicMock(name="grad_chart"))
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+
+    calls = {"n": 0}
+
+    def fake_subprocess(name, command, cwd=""):
+        calls["n"] += 1
+        n_energy = 11 if calls["n"] == 1 else 21
+        _write_energy(tmp_path, n_energy)
+        _write_gradient(tmp_path, n_energy - 1)
+        failed = tmp_path / "GEO_OPT_FAILED"
+        converged = tmp_path / "GEO_OPT_CONVERGED"
+        if calls["n"] == 1:
+            failed.write_text("OPTIMIZATION DID NOT CONVERGE\n", encoding="utf-8")
+            converged.unlink(missing_ok=True)
+        else:
+            failed.unlink(missing_ok=True)
+            converged.write_text("CONVERGED\n", encoding="utf-8")
+        return True
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+    )
+    await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    assert calls["n"] == 2
+    assert flush_steps[0][-1] == 11
+    assert all(steps[-1] == 21 for steps in flush_steps[1:])
+    infos = [call.args[0] for call in node_runner.info.call_args_list]
+    assert any("cycles 1-10" in msg for msg in infos)
+    assert any("cycles 11-20" in msg for msg in infos)
+    assert not any("cycles 12-21" in msg for msg in infos)
+    assert any("Wrote optimization chart artifacts after jobex cycles 1-10" in msg for msg in infos)
+
+
+@pytest.mark.asyncio
 async def test_run_optimization_chunks_flushes_on_early_convergence(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     flush_steps = []
