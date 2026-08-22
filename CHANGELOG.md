@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.2 (2026-08-22)
+
+### Bug Fixes
+
+- Update dispersion_correction field in HyperPolarizationRecord model
+  ([`ed16bbe`](https://github.com/simstack/molecular_qm_turbomole/commit/ed16bbe4eecb7bcbcfba007c1b07b77b754f0f98))
+
+
 ## v0.4.1 (2026-08-22)
 
 ### Bug Fixes
