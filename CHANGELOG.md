@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.1 (2026-08-22)
+
+### Bug Fixes
+
+- Improve optimization chunk handling in TURBOMOLE integration
+  ([`11ccd72`](https://github.com/simstack/molecular_qm_turbomole/commit/11ccd72cc4c48172c4707d74a65f1004b034d9c2))
+
+
 ## v0.4.0 (2026-08-22)
 
 ### Features
