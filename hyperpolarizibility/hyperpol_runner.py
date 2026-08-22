@@ -127,13 +127,6 @@ def _qm_input_for_combo(
     return qm_input
 
 
-def _empty_hyperpol_table() -> SimpleTable:
-    table = SimpleTable(name="Hyperpolarizability")
-    table.add_column("pair", "int")
-    table.add_column("beta_zzz_1e30_esu", "float")
-    return table
-
-
 def _beta_field_name(pair: int) -> str:
     return f"beta_pair_{pair}_zzz_1e30_esu"
 
@@ -146,14 +139,12 @@ def _hyperpol_dataset_row(
     hyperpol_table: Optional[SimpleTable],
     error: Optional[str] = None,
 ) -> Dict[str, Model]:
-    table = hyperpol_table if hyperpol_table is not None else _empty_hyperpol_table()
     keyword = TurbomoleFunctionalEnum.coerce(functional).value
-    betas = beta_zzz_by_pair(table)
+    betas = beta_zzz_by_pair(hyperpol_table)
     row: Dict[str, Model] = {
         "basis_set": StringData(field_name="basis_set", value=str(basis_set)),
         "functional": StringData(field_name="functional", value=keyword),
         "frequency": FloatData(field_name="frequency", value=float(frequency_nm or 0.0)),
-        "hyperpolarizability": table,
     }
     for pair in HYPERPOL_BETA_PAIRS:
         field = _beta_field_name(pair)

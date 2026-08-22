@@ -182,7 +182,7 @@ def test_hyperpol_dataset_row_has_basis_functional_frequency_and_beta_entries():
     assert row["functional"].value == "cam-b3lyp"
     assert isinstance(row["frequency"], FloatData)
     assert row["frequency"].value == 1064.0
-    assert row["hyperpolarizability"] is table
+    assert "hyperpolarizability" not in row
     assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.12)
     assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.34)
     assert row["beta_pair_3_zzz_1e30_esu"].value == pytest.approx(0.0)

@@ -391,6 +391,16 @@ def test_build_hyperpol_dataset_from_records_uses_formula_section_and_wavelength
     assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.5)
     assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.0)
     assert row["error"].value == ""
+    assert "hyperpolarizability" not in row
+    assert set(row) == {
+        "basis_set",
+        "functional",
+        "frequency",
+        "beta_pair_1_zzz_1e30_esu",
+        "beta_pair_2_zzz_1e30_esu",
+        "beta_pair_3_zzz_1e30_esu",
+        "error",
+    }
 
 
 def test_build_hyperpol_dataset_from_records_skips_util_missing_section_name():
