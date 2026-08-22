@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.4.4 (2026-08-22)
+
+### Bug Fixes
+
+- Simplify label retrieval and enhance JSON schema for HyperPolarizationRecord
+  ([`1f82b76`](https://github.com/simstack/molecular_qm_turbomole/commit/1f82b762624daa41176b2285e87a07eef6896503))
+
+### Refactoring
+
+- Enhance error handling and logging in hyperpolarizability workflow
+  ([`7c4627f`](https://github.com/simstack/molecular_qm_turbomole/commit/7c4627f4461cecaebada19d115d6201a99d363f6))
+
+- Update functional handling in TURBOMOLE input models
+  ([`e4b58fe`](https://github.com/simstack/molecular_qm_turbomole/commit/e4b58fe986ed9e5e4e9efcf459c98a53f24d69c8))
+
+
 ## v0.4.3 (2026-08-22)
 
 ### Bug Fixes
