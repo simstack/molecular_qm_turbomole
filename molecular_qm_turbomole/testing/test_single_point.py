@@ -1,7 +1,7 @@
 import asyncio
 
-from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.molecule import Atom, Molecule
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
     DispersionCorrection,
     TurbomoleBasisSet2,
@@ -40,7 +40,7 @@ def make_qm_input(molecule: Molecule, *, optimization: bool = False) -> Turbomol
         charge=0,
         multiplicity=1,
         basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
-        functional=FunctionalEnum.PBE,
+        functional=TurbomoleFunctionalEnum.PBE,
         dispersion_correction=DispersionCorrection(),
         optimization=optimization,
         gradients=False,

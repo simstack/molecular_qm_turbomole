@@ -6,10 +6,10 @@ from typing import Any, List, Optional
 from odmantic import Field, Model, Reference
 from pydantic import model_validator
 
-from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.output_parser import parse_coord_file, write_final_geometry_xyz
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctional
 from molecular_qm_turbomole.models.turbomole_input import (
     DispersionCorrection,
     HyperpolarizabilityModeEnum,
@@ -437,13 +437,7 @@ def _extract_structure_from_result(result: Any, node_runner: NodeRunner) -> Opti
 class HyperPolarizationRecord(Model):
     field_name: str = "HyperPolarizationRecord"
     molecule: Molecule = Reference()
-    functional: FunctionalEnum = Field(
-        FunctionalEnum.B3LYP,
-        json_schema_extra={
-            "enum": [item.value for item in FunctionalEnum],
-            "title": "Functional",
-        },
-    )
+    functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
     dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
@@ -466,19 +460,13 @@ class HyperPolarizationRecord(Model):
         schema = cleaned_json_schema(cls)
         schema["title"] = cls.__name__
         properties = schema.setdefault("properties", {})
-        properties["functional"] = {
-            "type": "string",
-            "enum": [item.value for item in FunctionalEnum],
-            "default": FunctionalEnum.B3LYP.value,
-            "title": "Functional",
-        }
+        properties["functional"] = TurbomoleFunctional.json_schema()
         return schema
 
     @classmethod
     def ui_schema(cls):
         ui_schema = generate_ui_schema(cls)
         ui_schema["field_name"] = {"ui:widget": "hidden"}
-        ui_schema.setdefault("functional", {})["ui:widget"] = "select"
         return ui_schema
 
 

@@ -22,6 +22,7 @@ from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.env import build_ground_state_script
 from molecular_qm_turbomole.lib.output_parser import parse_vibspectrum_file
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
     DispersionCorrection,
     HyperpolarizabilityModeEnum,
@@ -42,7 +43,7 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": FunctionalEnum.B3LYP,
+        "functional": TurbomoleFunctionalEnum.B3_LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
     }
     payload.update(overrides)
@@ -211,7 +212,7 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     molecule = _water()
     record = HyperPolarizationRecord(
         molecule=molecule,
-        functional=FunctionalEnum.B3LYP,
+        functional=TurbomoleFunctionalEnum.B3_LYP,
         dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
         started_at=datetime.now(timezone.utc),
     )
@@ -226,26 +227,27 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     assert default_doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.NONE.value
 
 
-def test_hyperpolarization_record_schema_inlines_functional_enum():
+def test_hyperpolarization_record_schema_nests_turbomole_functional():
     schema = HyperPolarizationRecord.json_schema()
     ui = HyperPolarizationRecord.ui_schema()
     functional = schema["properties"]["functional"]
-    assert functional["type"] == "string"
-    assert "B3LYP" in functional["enum"]
-    assert "CAM-B3LYP" in functional["enum"]
-    assert "$ref" not in functional
-    assert ui["functional"]["ui:widget"] == "select"
+    nested = functional.get("properties", {}).get("functional", functional)
+    assert nested.get("enum")
+    assert "b3-lyp" in nested["enum"]
+    assert "cam-b3lyp" in nested["enum"]
+    assert "r2scan" in nested["enum"]
+    assert ui.get("functional", {}).get("ui:widget") != "select"
 
 
 def test_functional_label_reads_enum_and_legacy_nested_functional():
     molecule = _water()
     record = HyperPolarizationRecord(
         molecule=molecule,
-        functional=FunctionalEnum.CAM_B3LYP,
+        functional=TurbomoleFunctionalEnum.CAM_B3LYP,
         basis_set=TurbomoleBasisSet2(basis_set="def2-TZVP"),
         started_at=datetime.now(timezone.utc),
     )
-    assert _functional_label(record) == "CAM-B3LYP"
+    assert _functional_label(record) == "cam-b3lyp"
     assert _basis_label(record) == "def2-TZVP"
 
     nested = type("LegacyRecord", (), {"functional": Functional(functional=FunctionalEnum.PBE)})()

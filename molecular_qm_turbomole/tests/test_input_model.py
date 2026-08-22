@@ -1,11 +1,11 @@
 import pytest
 from pydantic import ValidationError
 
-from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
     DispersionCorrection,
     HyperpolarizabilityModeEnum,
@@ -26,7 +26,7 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": FunctionalEnum.B3LYP,
+        "functional": TurbomoleFunctionalEnum.B3_LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
         "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.NONE),
     }
@@ -69,8 +69,13 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "blocks" not in schema["properties"]
     assert "control_groups" in schema["properties"]
     assert "dispersion_correction" in schema["properties"]
-    assert "dispersion_correction" not in schema["properties"]["functional"].get("properties", {})
-    assert schema["properties"]["functional"]["enum"]
+    functional_schema = schema["properties"]["functional"]
+    nested_functional = functional_schema.get("properties", {}).get("functional", functional_schema)
+    assert "dispersion_correction" not in functional_schema.get("properties", {})
+    assert nested_functional.get("enum")
+    assert "b3-lyp" in nested_functional["enum"]
+    assert "cam-b3lyp" in nested_functional["enum"]
+    assert "r2scan" in nested_functional["enum"]
     assert "anyOf" not in schema["properties"]["basis_set"]
     assert "anyOf" not in schema["properties"]["dispersion_correction"]
     assert "basis_set" in schema["required"]
@@ -126,6 +131,15 @@ def test_leftover_edelt_payload_is_rejected():
         _qm_input(edelt=0.005)
 
 
+def test_turbomole_functional_enum_covers_named_keywords_and_aliases():
+    values = {item.value for item in TurbomoleFunctionalEnum}
+    for keyword in ("b3-lyp", "pbe", "cam-b3lyp", "r2scan", "wb97x-d", "lh20t", "b2-plyp"):
+        assert keyword in values
+    assert TurbomoleFunctionalEnum.coerce("B3LYP") is TurbomoleFunctionalEnum.B3_LYP
+    assert TurbomoleFunctionalEnum.coerce("BP86") is TurbomoleFunctionalEnum.B_P
+    assert TurbomoleFunctionalEnum.coerce("CAM-B3LYP") is TurbomoleFunctionalEnum.CAM_B3LYP
+
+
 def test_input_writer_emits_define_and_coord(tmp_path):
     qm_input = _qm_input(optimization=False, name="water-sp")
     writer = TurbomoleInputWriter(qm_input)
@@ -160,7 +174,7 @@ def test_input_writer_emits_top_level_dispersion(tmp_path):
 
 def test_dispersion_correction_is_independent_of_functional():
     model = _qm_input(
-        functional=FunctionalEnum.B3LYP,
+        functional=TurbomoleFunctionalEnum.B3_LYP,
         dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D4),
     )
     assert model.dispersion_enum() == DispersionCorrectionEnum.D4
@@ -178,7 +192,7 @@ def test_missing_dispersion_is_lifted_from_legacy_functional_payload():
         },
         basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
     )
-    assert model.functional == FunctionalEnum.PBE
+    assert model.functional.functional == TurbomoleFunctionalEnum.PBE
     assert model.dispersion_enum() == DispersionCorrectionEnum.D3
 
 

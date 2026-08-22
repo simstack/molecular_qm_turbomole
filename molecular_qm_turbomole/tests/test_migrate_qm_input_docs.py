@@ -65,7 +65,10 @@ def test_legacy_qm_input_is_converted_to_input2_shape():
     assert "id" not in upgraded["basis_set"]
     assert upgraded["dispersion_correction"]["value"] == "D3"
     assert "id" not in upgraded["dispersion_correction"]
-    assert upgraded["functional"] == "PBE"
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "pbe",
+    }
     assert upgraded["hyperpolarizability"] == "dynamic"
     assert upgraded["hyperpol_frequency_nm"] == 1064.0
     assert "gw_enabled" not in upgraded
@@ -78,7 +81,7 @@ def test_legacy_qm_input_is_converted_to_input2_shape():
     payload["molecule"] = molecule
     parsed = TurbomoleQMInput2.model_validate(payload)
     assert parsed.basis_set.basis_set == "aug-cc-pVDZ"
-    assert parsed.functional.value == "PBE"
+    assert parsed.functional.keyword() == "pbe"
     assert parsed.dispersion_correction.value.value == "D3"
     assert parsed.hyperpolarizability.value == "dynamic"
 
@@ -100,7 +103,7 @@ def test_already_migrated_qm_input2_is_unchanged():
         "active_electrons": 0,
         "active_orbitals": 0,
         "basis_set": {"field_name": "TurbomoleBasisSet2", "basis_set": "def2-SVP"},
-        "functional": "B3LYP",
+        "functional": {"field_name": "TurbomoleFunctional", "functional": "b3-lyp"},
         "dispersion_correction": {"field_name": "DispersionCorrection", "value": "NONE"},
         "gradients": False,
         "optimization": False,
@@ -116,7 +119,10 @@ def test_already_migrated_qm_input2_is_unchanged():
     }
     upgraded, changed = upgrade_turbomole_qm_input_doc(original)
     assert not changed
-    assert upgraded["functional"] == "B3LYP"
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "b3-lyp",
+    }
     assert "id" not in upgraded["basis_set"]
     assert "id" not in upgraded["dispersion_correction"]
 
@@ -136,10 +142,13 @@ def test_static_bool_hyperpolarizability_without_wavelength():
     assert changed
     assert upgraded["hyperpolarizability"] == "static"
     assert upgraded["dispersion_correction"]["value"] == "NONE"
-    assert upgraded["functional"] == "PBE"
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "pbe",
+    }
 
 
-def test_hyperpolarization_record_lifts_dispersion_and_flattens_functional():
+def test_hyperpolarization_record_lifts_dispersion_and_nests_functional():
     original = {
         "_id": ObjectId(),
         "field_name": "HyperPolarizationRecord",
@@ -161,7 +170,10 @@ def test_hyperpolarization_record_lifts_dispersion_and_flattens_functional():
     }
     upgraded, changed = upgrade_hyperpolarization_record_doc(original)
     assert changed
-    assert upgraded["functional"] == "CAM-B3LYP"
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "cam-b3lyp",
+    }
     assert "id" not in upgraded["basis_set"]
     assert upgraded["dispersion_correction"]["value"] == "D4"
     assert "id" not in upgraded["dispersion_correction"]

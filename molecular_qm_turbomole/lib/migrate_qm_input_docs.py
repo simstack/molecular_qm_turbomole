@@ -1,8 +1,8 @@
 """Rewrite stored TURBOMOLE input / hyperpol records after the input shape change.
 
-``TurbomoleBasisSet2`` and ``DispersionCorrection`` are required embedded
-payloads (not optional Models). ``functional`` is a ``FunctionalEnum`` string;
-legacy docs nested dispersion under ``functional``.
+``TurbomoleBasisSet2``, ``TurbomoleFunctional``, and ``DispersionCorrection`` are
+required embedded payloads (not optional Models). Legacy docs nested dispersion
+under ``functional`` or stored a chemistry-name string such as ``B3LYP``.
 """
 
 from __future__ import annotations
@@ -13,6 +13,10 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from bson import ObjectId
 
+from molecular_qm_turbomole.models.turbomole_functional import (
+    TurbomoleFunctionalEnum,
+    as_turbomole_functional_doc,
+)
 from molecular_qm_turbomole.models.turbomole_input import (
     TURBOMOLE_DEFAULT_BASIS_SET,
     DispersionCorrection,
@@ -36,6 +40,7 @@ HYPERPOL_MODE_ALIASES = {
 
 QM_INPUT2_TOP_LEVEL_KEYS = set(TurbomoleQMInput2.model_fields) | {"_id"}
 BASIS_SET_KEYS = {"field_name", "basis_set"}
+FUNCTIONAL_KEYS = {"field_name", "functional"}
 DISPERSION_KEYS = {"field_name", "value"}
 
 
@@ -70,6 +75,12 @@ def as_basis_set_model_doc(raw: Any) -> Dict[str, Any]:
         "field_name": TurbomoleBasisSet2.__name__,
         "basis_set": str(basis),
     }
+
+
+def as_functional_model_doc(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        raw = raw.get("functional", raw)
+    return as_turbomole_functional_doc(raw)
 
 
 def as_dispersion_model_doc(raw: Any) -> Dict[str, Any]:
@@ -142,11 +153,7 @@ def upgrade_turbomole_qm_input_doc(doc: Dict[str, Any]) -> Tuple[Dict[str, Any],
     upgraded["field_name"] = TurbomoleQMInput2.__name__
     upgraded["basis_set"] = as_basis_set_model_doc(doc.get("basis_set"))
     upgraded["dispersion_correction"] = _dispersion_from_doc(doc)
-    functional = doc.get("functional")
-    if isinstance(functional, dict):
-        upgraded["functional"] = functional.get("functional") or "B3LYP"
-    elif hasattr(functional, "functional"):
-        upgraded["functional"] = getattr(functional.functional, "value", functional.functional)
+    upgraded["functional"] = as_functional_model_doc(doc.get("functional"))
     upgraded["hyperpolarizability"] = _hyperpolarizability_mode(doc)
     upgraded["hyperpol_frequency_nm"] = _hyperpol_frequency_nm(doc)
     stripped = {key: value for key, value in upgraded.items() if key in QM_INPUT2_TOP_LEVEL_KEYS}
@@ -159,6 +166,10 @@ def upgrade_turbomole_qm_input_doc(doc: Dict[str, Any]) -> Tuple[Dict[str, Any],
             key: value
             for key, value in stripped["dispersion_correction"].items()
             if key in DISPERSION_KEYS
+        }
+    if isinstance(stripped.get("functional"), dict):
+        stripped["functional"] = {
+            key: value for key, value in stripped["functional"].items() if key in FUNCTIONAL_KEYS
         }
     return stripped, not _docs_equal(doc, stripped)
 
@@ -183,9 +194,7 @@ def upgrade_hyperpolarization_record_doc(doc: Dict[str, Any]) -> Tuple[Dict[str,
     else:
         upgraded["basis_set"] = as_basis_set_model_doc(None)
     upgraded["dispersion_correction"] = _dispersion_from_doc(upgraded)
-    functional = upgraded.get("functional")
-    if isinstance(functional, dict):
-        upgraded["functional"] = functional.get("functional") or "B3LYP"
+    upgraded["functional"] = as_functional_model_doc(upgraded.get("functional"))
     if isinstance(upgraded.get("hyperpol"), dict):
         upgraded["hyperpol"] = _ensure_nested_model_id(
             upgraded["hyperpol"], field_name="SimpleTable"
@@ -303,7 +312,6 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
         _molecule_section_name,
     )
     from hyperpolarizibility.workflows import HyperPolarizationRecord
-    from molecular_qm_models.density_functional import Functional, FunctionalEnum
     from simstack.models import StringData
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadata
@@ -330,13 +338,7 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
         section_name = _molecule_section_name(molecule) if molecule is not None else "molecule"
         section = dataset[section_name]
         basis = getattr(record.basis_set, "basis_set", None) or TURBOMOLE_DEFAULT_BASIS_SET
-        functional_value = record.functional
-        if isinstance(functional_value, Functional):
-            functional = functional_value
-        elif isinstance(functional_value, FunctionalEnum):
-            functional = Functional(functional=functional_value)
-        else:
-            functional = Functional()
+        functional = TurbomoleFunctionalEnum.coerce(getattr(record, "functional", None))
         row = _hyperpol_dataset_row(
             basis_set=str(basis),
             functional=functional,

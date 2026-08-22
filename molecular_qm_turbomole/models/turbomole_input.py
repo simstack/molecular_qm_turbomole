@@ -4,10 +4,14 @@ from typing import Any, List, Optional
 from odmantic import EmbeddedModel, Field, Model, Reference
 from pydantic import field_validator, model_validator
 
-from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.lib.control_utils import parse_control_groups
+from molecular_qm_turbomole.models.turbomole_functional import (
+    TurbomoleFunctional,
+    TurbomoleFunctionalEnum,
+    as_turbomole_functional_doc,
+)
 from simstack.models import simstack_model
 from simstack.util.cleaned_json_schema import cleaned_json_schema
 from simstack.util.generate_ui_schema import generate_ui_schema
@@ -76,16 +80,6 @@ class HyperpolarizabilityModeEnum(str, Enum):
     DYNAMIC = "dynamic"
 
 
-def _functional_enum_value(raw: Any) -> Any:
-    if raw is None:
-        return raw
-    if isinstance(raw, FunctionalEnum):
-        return raw
-    if isinstance(raw, dict):
-        raw = raw.get("functional", raw)
-    return getattr(raw, "functional", raw)
-
-
 def _nested_dispersion_payload(functional: Any) -> Any:
     if isinstance(functional, dict):
         nested = functional.get("dispersion_correction")
@@ -104,9 +98,11 @@ def normalize_functional_and_dispersion(data: dict) -> dict:
         nested = _nested_dispersion_payload(functional)
         if nested is not None:
             data["dispersion_correction"] = nested
-    coerced = _functional_enum_value(functional)
-    if coerced is not None:
-        data["functional"] = coerced
+    if functional is not None:
+        if isinstance(functional, TurbomoleFunctional):
+            data["functional"] = functional
+        else:
+            data["functional"] = as_turbomole_functional_doc(functional)
     return data
 
 
@@ -183,10 +179,10 @@ class TurbomoleQMInput2(Model):
     Clean TURBOMOLE input for turbomole2.
 
     Field surface mirrors the historical TurbomoleQMInput (without GW).
-    Functional is an enum; DispersionCorrection is a required sibling field
-    (use NONE to turn it off). Solvent and hyperpolarizability extra fields
-    are hidden in the UI until the matching mode is selected; stored values
-    are not rewritten.
+    Functional is a TurbomoleFunctional; DispersionCorrection is a required
+    sibling field (use NONE to turn it off). Solvent and hyperpolarizability
+    extra fields are hidden in the UI until the matching mode is selected;
+    stored values are not rewritten.
     """
 
     field_name: str = "TurbomoleQMInput2"
@@ -235,14 +231,7 @@ class TurbomoleQMInput2(Model):
     active_electrons: int = Field(0, json_schema_extra={"description": "number of active electrons"})
     active_orbitals: int = Field(0, json_schema_extra={"description": "number of active orbitals"})
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
-    functional: FunctionalEnum = Field(
-        FunctionalEnum.B3LYP,
-        json_schema_extra={
-            "enum": [item.value for item in FunctionalEnum],
-            "description": "density functional",
-            "title": "Functional",
-        },
-    )
+    functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
     dispersion_correction: DispersionCorrection = Field(
         default_factory=DispersionCorrection,
         json_schema_extra={
@@ -340,6 +329,12 @@ class TurbomoleQMInput2(Model):
             data["field_name"] = cls.__name__
         return normalize_functional_and_dispersion(data)
 
+    def functional_enum(self) -> TurbomoleFunctionalEnum:
+        value = self.functional.functional
+        if isinstance(value, TurbomoleFunctionalEnum):
+            return value
+        return TurbomoleFunctionalEnum.coerce(value)
+
     def dispersion_enum(self) -> DispersionCorrectionEnum:
         value = self.dispersion_correction.value
         if isinstance(value, DispersionCorrectionEnum):
@@ -357,13 +352,7 @@ class TurbomoleQMInput2(Model):
         schema = cleaned_json_schema(cls)
         schema["title"] = cls.__name__
         properties = schema.setdefault("properties", {})
-        properties["functional"] = {
-            "type": "string",
-            "enum": [item.value for item in FunctionalEnum],
-            "default": FunctionalEnum.B3LYP.value,
-            "title": "Functional",
-            "description": "density functional",
-        }
+        properties["functional"] = TurbomoleFunctional.json_schema()
         properties["hyperpolarizability"] = {
             "type": "string",
             "enum": [e.value for e in HyperpolarizabilityModeEnum],
@@ -421,7 +410,6 @@ class TurbomoleQMInput2(Model):
             "control_groups",
         ]
         ui_schema.setdefault("ui:options", {})["ui:foldable"] = True
-        ui_schema.setdefault("functional", {})["ui:widget"] = "select"
         ui_schema.setdefault("hyperpolarizability", {})["ui:widget"] = "select"
         ui_schema.setdefault("solvent", {})["ui:condition"] = {
             "solvent_mode": SolventModeEnum.IMPLICIT.value

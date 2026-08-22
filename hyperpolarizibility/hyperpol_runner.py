@@ -17,9 +17,13 @@ from hyperpolarizibility.workflows import (
     hyperpolarizibility,
     workflow_parameters,
 )
-from molecular_qm_models.density_functional import Functional, FunctionalEnum, FunctionalModel
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.lib.hyperpol import hyperpolarizability_wavelength_nm
+from molecular_qm_turbomole.models.turbomole_functional import (
+    TURBOMOLE_FUNCTIONAL_VALUES,
+    TurbomoleFunctional,
+    TurbomoleFunctionalEnum,
+)
 from molecular_qm_turbomole.models.turbomole_input import (
     TURBOMOLE_BASIS_SET_VALUES,
     HyperpolarizabilityModeEnum,
@@ -41,7 +45,7 @@ from simstack.util.generate_ui_schema import generate_ui_schema
 @simstack_model
 class HyperpolRunnerModel(Model):
     field_name: str = "HyperpolRunnerModel"
-    functionals: List[FunctionalEnum] = Field(
+    functionals: List[TurbomoleFunctionalEnum] = Field(
         default_factory=list,
         json_schema_extra={"description": "Functionals to sweep. Combined with basis_sets."},
     )
@@ -71,7 +75,7 @@ class HyperpolRunnerModel(Model):
         if "functionals" in properties:
             properties["functionals"]["items"] = {
                 "type": "string",
-                "enum": [item.value for item in FunctionalEnum],
+                "enum": list(TURBOMOLE_FUNCTIONAL_VALUES),
             }
         return schema
 
@@ -111,19 +115,15 @@ def _settings_from_qm_input(qm_input: TurbomoleQMInput2) -> HyperpolarizabilityS
     )
 
 
-def _functional_for_enum(functional_enum: FunctionalEnum) -> Functional:
-    return Functional(functional=functional_enum)
-
-
 def _qm_input_for_combo(
     base: TurbomoleQMInput2,
     *,
     basis_set: str,
-    functional_enum: FunctionalEnum,
+    functional_enum: TurbomoleFunctionalEnum,
 ) -> TurbomoleQMInput2:
     qm_input = _copy_qm_input(base)
     qm_input.basis_set = TurbomoleBasisSet2(basis_set=basis_set)
-    qm_input.functional = functional_enum
+    qm_input.functional = TurbomoleFunctional(functional=functional_enum)
     qm_input.name = f"{base.name}_{functional_enum.value}_{basis_set}"
     return qm_input
 
@@ -138,14 +138,15 @@ def _empty_hyperpol_table() -> SimpleTable:
 def _hyperpol_dataset_row(
     *,
     basis_set: str,
-    functional: Functional,
+    functional: TurbomoleFunctionalEnum,
     frequency_nm: float,
     hyperpol_table: Optional[SimpleTable],
 ) -> Dict[str, Model]:
     table = hyperpol_table if hyperpol_table is not None else _empty_hyperpol_table()
+    keyword = TurbomoleFunctionalEnum.coerce(functional).value
     row: Dict[str, Model] = {
         "basis_set": StringData(field_name="basis_set", value=basis_set),
-        "functional": FunctionalModel(functional=functional),
+        "functional": StringData(field_name="functional", value=keyword),
         "frequency": FloatData(field_name="frequency", value=float(frequency_nm)),
         "hyperpolarizability": table,
     }
@@ -166,7 +167,7 @@ def _child_hyperpol_table(result: Any) -> Optional[SimpleTable]:
     return None
 
 
-def _sweep_combos(model: HyperpolRunnerModel) -> List[Tuple[FunctionalEnum, str]]:
+def _sweep_combos(model: HyperpolRunnerModel) -> List[Tuple[TurbomoleFunctionalEnum, str]]:
     functionals = _unique(model.functionals)
     basis_sets = _unique(model.basis_sets)
     if not functionals:
@@ -243,13 +244,12 @@ async def hyperpol_runner(
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for (functional_enum, basis_set), result in zip(combos, results):
-            functional = _functional_for_enum(functional_enum)
             if isinstance(result, Exception):
                 error = child_exception_text(result, node_name="hyperpolarizibility")
                 node_runner.error(f"{functional_enum.value} / {basis_set} failed: {error}")
                 row = _hyperpol_dataset_row(
                     basis_set=basis_set,
-                    functional=functional,
+                    functional=functional_enum,
                     frequency_nm=frequency_nm,
                     hyperpol_table=None,
                 )
@@ -258,7 +258,7 @@ async def hyperpol_runner(
                 table = _child_hyperpol_table(result)
                 row = _hyperpol_dataset_row(
                     basis_set=basis_set,
-                    functional=functional,
+                    functional=functional_enum,
                     frequency_nm=frequency_nm,
                     hyperpol_table=table,
                 )

@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Optional
 
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import TurbomoleQMInput2
 
 logger = logging.getLogger(__name__)
@@ -48,24 +49,10 @@ def tm_basis_name(raw_basis: str) -> str:
 
 
 def tm_functional_name(raw_functional: str) -> str:
-    mapping = {
-        "PBE": "pbe",
-        "BLYP": "b-lyp",
-        "BP86": "b-p",
-        "B3LYP": "b3-lyp",
-        "PBE0": "pbe0",
-        "TPSS": "tpss",
-        "TPSSH": "tpssh",
-        "M06": "m06",
-        "M06-2X": "m06-2x",
-        "CAM-B3LYP": "cam-b3lyp",
-        "ωB97X-D": "wb97x-d",
-        "WB97X-D": "wb97x-d",
-    }
-    mapped = mapping.get(raw_functional.upper())
-    if mapped is None:
-        raise ValueError(f"Unsupported functional: {raw_functional}")
-    return mapped
+    try:
+        return TurbomoleFunctionalEnum.coerce(raw_functional).value
+    except ValueError as exc:
+        raise ValueError(f"Unsupported functional: {raw_functional}") from exc
 
 
 def tm_dispersion_name(raw_dispersion: str) -> Optional[str]:
@@ -104,7 +91,7 @@ class TurbomoleInputWriter:
     def write_define_input(self, path: str = "define.inp") -> None:
         use_ri = should_use_ri(self.qm_input)
         basis_name = tm_basis_name(str(self.qm_input.basis_set.basis_set))
-        functional_name = tm_functional_name(self.qm_input.functional.value)
+        functional_name = tm_functional_name(self.qm_input.functional.keyword())
         dispersion = tm_dispersion_name(self.qm_input.dispersion_enum().value)
         memory_mb = ri_memory_mb()
 
