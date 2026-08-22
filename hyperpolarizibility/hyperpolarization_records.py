@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from hyperpolarizibility.workflows import HyperPolarizationRecord, beta_zzz_by_pair
+from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+from hyperpolarizibility.workflows import beta_zzz_by_pair
+from molecular_qm_util import compute_iupac_name, compute_smiles
 from simstack.core.context import context
 from simstack.core.node import node
 from simstack.core.node_runner import NodeRunner
@@ -35,6 +37,31 @@ def _basis_label(record: HyperPolarizationRecord) -> str:
     return _scalar_label(getattr(record, "basis_set", None), "basis_set")
 
 
+def _display_label(value) -> str:
+    text = str(value or "").strip()
+    if not text or text.lower().startswith("error"):
+        return "N/A"
+    return text
+
+
+def _label_missing(value) -> bool:
+    return _display_label(value) == "N/A"
+
+
+def _fill_smiles_and_formula(molecule) -> bool:
+    """Create missing SMILES/formula from coordinates via molecular_qm_util."""
+    if molecule is None:
+        return False
+    changed = False
+    if _label_missing(molecule.smiles):
+        molecule.smiles = compute_smiles(molecule)
+        changed = True
+    if _label_missing(molecule.formula):
+        molecule.formula = compute_iupac_name(molecule)
+        changed = True
+    return changed
+
+
 @node(parameters=_table_parameters)
 async def hyperpolarization_records_to_table(
     date_info: StringData, **kwargs
@@ -42,8 +69,8 @@ async def hyperpolarization_records_to_table(
     """
     Convert stored HyperPolarizationRecord documents into a table of beta_zzz values.
 
-    Runs on the host (resource self). This node only reads MongoDB; it does not
-    need TURBOMOLE or int-nano.
+    Runs on the host (resource self). Missing SMILES/formula are computed and
+    written back to the molecule. This node does not need TURBOMOLE or int-nano.
 
     Parameters:
         date_info (StringData): Optional ISO datetime used only for logging.
@@ -65,6 +92,7 @@ async def hyperpolarization_records_to_table(
     simple_table = SimpleTable(name="Hyperpolarization Results")
     simple_table.add_column("Started At", "string")
     simple_table.add_column("Molecule (SMILES)", "string")
+    simple_table.add_column("Formula", "string")
     simple_table.add_column("Functional", "string")
     simple_table.add_column("Basis Set", "string")
     simple_table.add_column("beta_pair_1_zzz_1e30_esu", "float")
@@ -74,10 +102,24 @@ async def hyperpolarization_records_to_table(
     simple_table.add_column("Error", "string")
 
     for record in records:
+        molecule = record.molecule
+        smiles = "N/A"
+        formula = "N/A"
+        if molecule is not None:
+            try:
+                if _fill_smiles_and_formula(molecule):
+                    molecule = await context.db.save(molecule)
+                    record.molecule = molecule
+                    await context.db.save(record)
+            except Exception as exc:
+                node_runner.info(f"Could not compute SMILES/formula: {exc}")
+            smiles = _display_label(molecule.smiles)
+            formula = _display_label(molecule.formula)
         betas = beta_zzz_by_pair(record.hyperpol)
         row = {
             "Started At": record.started_at.isoformat() if record.started_at else None,
-            "Molecule (SMILES)": record.molecule.smiles if record.molecule else "N/A",
+            "Molecule (SMILES)": smiles,
+            "Formula": formula,
             "Functional": _functional_label(record),
             "Basis Set": _basis_label(record),
             "beta_pair_1_zzz_1e30_esu": betas.get(1),
@@ -89,6 +131,7 @@ async def hyperpolarization_records_to_table(
         node_runner.info(
             f"Record: started_at={row['Started At']}, "
             f"molecule_smiles={row['Molecule (SMILES)']}, "
+            f"formula={row['Formula']}, "
             f"functional={row['Functional']}, "
             f"basis_set={row['Basis Set']}, "
             f"beta_pair_1_zzz_1e30_esu={row['beta_pair_1_zzz_1e30_esu']}, "

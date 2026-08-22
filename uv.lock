@@ -1,12 +1,16 @@
 version = 1
 revision = 3
 requires-python = "==3.12.*"
+resolution-markers = [
+    "sys_platform == 'win32'",
+    "sys_platform != 'win32'",
+]
 
 [manifest]
 constraints = [{ name = "numpy", specifier = "<2.5.0" }]
 overrides = [
     { name = "molecular-qm-models", git = "https://github.com/simstack/molecular_qm_models.git" },
-    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git" },
+    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww" },
     { name = "numpy", specifier = "<2.5.0" },
     { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=celso-simstack" },
 ]
@@ -108,6 +112,7 @@ source = { editable = "." }
 dependencies = [
     { name = "molecular-qm-models" },
     { name = "molecular-qm-util" },
+    { name = "openbabel-wheel" },
     { name = "simstack" },
 ]
 
@@ -120,7 +125,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "molecular-qm-models", git = "https://github.com/simstack/molecular_qm_models.git" },
-    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git" },
+    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww" },
+    { name = "openbabel-wheel", specifier = ">=3.1.1.23" },
     { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=celso-simstack" },
 ]
 
@@ -133,7 +139,7 @@ dev = [
 [[package]]
 name = "molecular-qm-util"
 version = "0.1.0"
-source = { git = "https://github.com/simstack/molecular_qm_util.git#0f360e34c3b987ad9615f446db15b2fce6992d4f" }
+source = { git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww#61c4fa1d69e3894bb4a9cbbf8e31a13596fbe7a5" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "cirpy" },
@@ -193,6 +199,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/05/c5/ae957aacccc68323eaeb044aabb2e92a4ccc65a6e06ab448b18bb5a75761/odmantic-1.1.0.tar.gz", hash = "sha256:70a1cfa7211870cd3d7eacf5a3fd99db29d6b333a33c77dcaa13330d003e2982", size = 36907, upload-time = "2026-01-24T18:02:04.459Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cd/e5/faca0638204ec90100e24cef47e9592c0d5f29b9652ec9f0e9f84ebef646/odmantic-1.1.0-py3-none-any.whl", hash = "sha256:01a851c2558e7cde69e292a54fd7b2d5cbc03b7af88b4f3a841d51c79274d159", size = 37082, upload-time = "2026-01-24T18:02:02.949Z" },
+]
+
+[[package]]
+name = "openbabel-wheel"
+version = "3.1.1.23"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/2d/720579ccff6247aa8fd2d397a7bd592dae72ef0f0133fe6cce2323ea13a2/openbabel_wheel-3.1.1.23.tar.gz", hash = "sha256:68fd86540ff0895d36b26f25721187399fb6073f874f6ae474a574e6acf8759d", size = 13256, upload-time = "2026-03-06T01:31:11.497Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/89/c332ce2ae368d887fc8e3f3f991c948f6ec31c8194a6d04ca3a9c80b4929/openbabel_wheel-3.1.1.23-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:39a648f936aa733984381863793b13945cf51452c0d56ceeaf7a46d9534a8527", size = 11608377, upload-time = "2026-02-17T13:17:56.142Z" },
+    { url = "https://files.pythonhosted.org/packages/54/72/8f6306674248cf1305e5610c0f5fb79b37b986ecba713a8429924da11a85/openbabel_wheel-3.1.1.23-cp312-cp312-macosx_14_0_x86_64.whl", hash = "sha256:9ad8e30bafbadd8325ad7c74cf2145c683ab766608e82262f1b0d8c6bb42a80b", size = 12218579, upload-time = "2026-02-17T13:17:59.068Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/d4/88625e94fa159c870c3ad7fb0a9a0c77be7b9ead68b2730c4b781243fe0e/openbabel_wheel-3.1.1.23-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:7fa4edf22b616e6c71065bdb01f028ec6fb4821b7f788cef97edc33a916203cf", size = 15639446, upload-time = "2026-02-17T13:18:01.125Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/a9/3e60dc173672ae40172a1f0c49fc42906d7587503f1f3acce4bd5b0cac7d/openbabel_wheel-3.1.1.23-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:39340af4da11cafabb95542fd110e7ff120e3af085e4e48aa2b8e69cc49b807b", size = 16087232, upload-time = "2026-02-17T13:18:04.563Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/ef/fe52b70c0e45348263ad52b3b11897cc16fd7a825d0013e1abb95dab4951/openbabel_wheel-3.1.1.23-cp312-cp312-win_amd64.whl", hash = "sha256:a7404eb43fcdd538120c127c59f5e61db2e93f11dc1230a71523a1c542bc445b", size = 5070029, upload-time = "2026-02-17T13:18:06.689Z" },
 ]
 
 [[package]]

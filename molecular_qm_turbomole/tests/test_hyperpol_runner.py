@@ -125,9 +125,21 @@ def test_qm_input_for_combo_overrides_basis_and_functional_only():
 def test_molecule_section_name_uses_formula():
     molecule = _water()
     assert _molecule_section_name(molecule) == "H2O"
-    molecule.formula = None
-    molecule.smiles = "O"
-    assert _molecule_section_name(molecule) == "O"
+
+
+def test_molecule_section_name_retries_util_missing_error():
+    molecule = Molecule()
+    molecule.add_atom(Atom.from_coords("O", [0.0, 0.0, 0.1173]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, 0.7572, -0.4692]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, -0.7572, -0.4692]))
+    molecule.formula = "Error: molecular_qm_util missing"
+    molecule.smiles = "Error: molecular_qm_util missing"
+    name = _molecule_section_name(molecule)
+    assert not name.lower().startswith("error")
+    assert molecule.smiles
+    assert molecule.formula
+    assert not str(molecule.smiles).lower().startswith("error")
+    assert not str(molecule.formula).lower().startswith("error")
 
 
 def test_hyperpol_dataset_row_has_basis_functional_frequency_and_beta_entries():

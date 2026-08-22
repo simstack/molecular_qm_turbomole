@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from bson import ObjectId
 
+from molecular_qm_turbomole.lib.molecule_labels import fill_molecule_labels, molecule_section_name
 from molecular_qm_turbomole.models.turbomole_functional import (
     TurbomoleFunctionalEnum,
     as_turbomole_functional_doc,
@@ -309,11 +310,8 @@ def record_row_name(record_id: Any) -> str:
 
 async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False) -> int:
     """Rebuild a DataSet from HyperPolarizationRecord docs so they appear in the Dataset UI."""
-    from hyperpolarizibility.hyperpol_runner import (
-        _hyperpol_dataset_row,
-        _molecule_section_name,
-    )
-    from hyperpolarizibility.workflows import HyperPolarizationRecord
+    from hyperpolarizibility.hyperpol_runner import _hyperpol_dataset_row
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
     from simstack.models import StringData
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadata
@@ -332,12 +330,15 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
     )
     existing = await db.find_one(DataSet, DataSet.field_name == "hyperpol_runner.migrated")
     if existing is not None:
-        dataset.id = existing.id
+        await db.delete(existing)
 
     added = 0
     for record in records:
-        molecule = record.molecule
-        section_name = _molecule_section_name(molecule) if molecule is not None else "molecule"
+        molecule = fill_molecule_labels(record.molecule)
+        if molecule is not None:
+            molecule = await db.save(molecule)
+            record.molecule = molecule
+        section_name = molecule_section_name(molecule) if molecule is not None else "molecule"
         section = dataset[section_name]
         basis = getattr(record.basis_set, "basis_set", None) or TURBOMOLE_DEFAULT_BASIS_SET
         functional = TurbomoleFunctionalEnum.coerce(getattr(record, "functional", None))

@@ -11,6 +11,7 @@ authors = [
 dependencies = [
     "molecular_qm_models",
     "molecular_qm_util",
+    "openbabel-wheel>=3.1.1.23",
     "simstack",
 ]
 
@@ -41,14 +42,14 @@ packages = ["molecular_qm_turbomole", "hyperpolarizibility"]
 
 [tool.uv.sources]
 molecular_qm_models = { git = "https://github.com/simstack/molecular_qm_models.git" }
-molecular_qm_util = { git = "https://github.com/simstack/molecular_qm_util.git" }
+molecular_qm_util = { git = "https://github.com/simstack/molecular_qm_util.git", rev = "develop-ww" }
 simstack = { git = "https://github.com/simstack/simstack.git", rev = "celso-simstack" }
 
 [tool.uv]
 # int-nano: numpy 2.5+ has no usable wheel and fails to build (cython/meson).
 override-dependencies = [
     "molecular_qm_models @ git+https://github.com/simstack/molecular_qm_models.git",
-    "molecular_qm_util @ git+https://github.com/simstack/molecular_qm_util.git",
+    "molecular_qm_util @ git+https://github.com/simstack/molecular_qm_util.git@develop-ww",
     "simstack @ git+https://github.com/simstack/simstack.git@celso-simstack",
     "numpy<2.5.0",
 ]

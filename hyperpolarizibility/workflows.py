@@ -1,21 +1,19 @@
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Optional
 
-from odmantic import Field, Model, Reference
+from odmantic import Field, Model
 from pydantic import model_validator
 
+from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_models.qm_result import QMResult
+from molecular_qm_turbomole.lib.molecule_labels import fill_molecule_labels
 from molecular_qm_turbomole.lib.output_parser import parse_coord_file, write_final_geometry_xyz
-from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctional
 from molecular_qm_turbomole.models.turbomole_input import (
-    DispersionCorrection,
     HyperpolarizabilityModeEnum,
-    TurbomoleBasisSet2,
     TurbomoleQMInput2,
-    normalize_functional_and_dispersion,
 )
 from molecular_qm_turbomole.nodes.turbomole2 import turbomole2
 from simstack.core.context import context
@@ -277,9 +275,14 @@ def _child_kwargs(parent_kwargs: dict) -> dict:
     return child
 
 
-async def _run_turbomole_inline(qm_input: TurbomoleQMInput2, child_kwargs: dict) -> Any:
+async def _run_turbomole_inline(
+    qm_input: TurbomoleQMInput2,
+    child_kwargs: dict,
+    *,
+    custom_name: str,
+) -> Any:
     try:
-        return await turbomole2(qm_input, **child_kwargs)
+        return await turbomole2(qm_input, **{**child_kwargs, "custom_name": custom_name})
     except Exception as exc:
         raise RuntimeError(child_exception_text(exc, node_name="turbomole2")) from exc
 
@@ -305,7 +308,7 @@ def child_exception_text(exc: BaseException, *, node_name: str | None = None) ->
 
 def _fail_workflow(
     node_runner: NodeRunner,
-    record: Optional["HyperPolarizationRecord"],
+    record: Optional[HyperPolarizationRecord],
     code: str,
     message: str,
 ) -> None:
@@ -433,43 +436,6 @@ def _extract_structure_from_result(result: Any, node_runner: NodeRunner) -> Opti
     return None
 
 
-@simstack_model
-class HyperPolarizationRecord(Model):
-    field_name: str = "HyperPolarizationRecord"
-    molecule: Molecule = Reference()
-    functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
-    dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
-    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
-    grids_used: List[str] = Field(default_factory=list)
-    started_at: datetime
-    hyperpol: Optional[SimpleTable] = None
-    success: bool = False
-    error: Optional[str] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def ensure_fieldname(cls, data):
-        if not isinstance(data, dict):
-            return data
-        if "field_name" not in data:
-            data["field_name"] = cls.__name__
-        return normalize_functional_and_dispersion(data)
-
-    @classmethod
-    def json_schema(cls, recursive=True):
-        schema = cleaned_json_schema(cls)
-        schema["title"] = cls.__name__
-        properties = schema.setdefault("properties", {})
-        properties["functional"] = TurbomoleFunctional.json_schema()
-        return schema
-
-    @classmethod
-    def ui_schema(cls):
-        ui_schema = generate_ui_schema(cls)
-        ui_schema["field_name"] = {"ui:widget": "hidden"}
-        return ui_schema
-
-
 @node(parameters=workflow_parameters)
 async def hyperpolarizibility(
     optimization_qm_input: TurbomoleQMInput2,
@@ -499,11 +465,7 @@ async def hyperpolarizibility(
     try:
         if optimization_qm_input.states > 0:
             raise ValueError("Workflow expects ground-state path for optimization. Please set states=0.")
-        molecule = optimization_qm_input.molecule
-        if hasattr(molecule, "make_smiles"):
-            molecule.smiles = molecule.make_smiles()
-        if hasattr(molecule, "make_formula"):
-            molecule.formula = molecule.make_formula()
+        molecule = fill_molecule_labels(optimization_qm_input.molecule)
         node_runner.info(f"Running workflow '{optimization_qm_input.name}'.")
 
         hyperpolarization_record = HyperPolarizationRecord(
@@ -528,7 +490,9 @@ async def hyperpolarizibility(
             optimization_input = _build_optimization_input(optimization_qm_input)
             hyperpolarization_record.grids_used.append(grid_size)
             node_runner.info(f"Running turbomole2 optimization with grid size {grid_size}.")
-            optimization_call_result = await _run_turbomole_inline(optimization_input, child_kwargs)
+            optimization_call_result = await _run_turbomole_inline(
+                optimization_input, child_kwargs, custom_name=grid_size
+            )
             optimization_result = _extract_qm_result(optimization_call_result) or optimization_call_result
             if not (_is_completed(optimization_call_result) or _is_completed(optimization_result)):
                 _fail_workflow(
@@ -596,7 +560,9 @@ async def hyperpolarizibility(
             f"mode={hyperpol_input.hyperpolarizability.value}, "
             f"lambda_nm={float(hyperpol_input.hyperpol_frequency_nm or 0.0):.10g}"
         )
-        hyperpol_call_result = await _run_turbomole_inline(hyperpol_input, child_kwargs)
+        hyperpol_call_result = await _run_turbomole_inline(
+            hyperpol_input, child_kwargs, custom_name="hyper"
+        )
         hyperpol_result = _extract_qm_result(hyperpol_call_result) or hyperpol_call_result
         hyperpol_table = _extract_hyperpolarizability_table(hyperpol_call_result)
         hyperpolarization_record.hyperpol = hyperpol_table

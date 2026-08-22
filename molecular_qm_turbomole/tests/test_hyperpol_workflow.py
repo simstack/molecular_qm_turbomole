@@ -2,9 +2,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from hyperpolarizibility.hyperpolarization_records import _basis_label, _functional_label
+from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+from hyperpolarizibility.hyperpolarization_records import (
+    _basis_label,
+    _display_label,
+    _fill_smiles_and_formula,
+    _functional_label,
+)
 from hyperpolarizibility.workflows import (
-    HyperPolarizationRecord,
     HyperpolarizabilitySettings,
     WorkflowFailure,
     _apply_hyperpolarizability_settings,
@@ -252,6 +257,19 @@ def test_functional_label_reads_enum_and_legacy_nested_functional():
 
     nested = type("LegacyRecord", (), {"functional": Functional(functional=FunctionalEnum.PBE)})()
     assert _functional_label(nested) == "PBE"
+
+
+def test_display_label_and_fill_missing_smiles_and_formula():
+    assert _display_label(None) == "N/A"
+    assert _display_label("Error: molecular_qm_util missing") == "N/A"
+
+    molecule = _water()
+    molecule.smiles = None
+    molecule.formula = None
+    assert _fill_smiles_and_formula(molecule)
+    assert _display_label(molecule.smiles) != "N/A"
+    assert _display_label(molecule.formula) != "N/A"
+    assert not _fill_smiles_and_formula(molecule)
 
 
 def test_child_exception_text_prefers_real_message_over_generic_failed_status():

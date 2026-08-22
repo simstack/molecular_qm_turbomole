@@ -19,6 +19,7 @@ from hyperpolarizibility.workflows import (
 )
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.lib.hyperpol import hyperpolarizability_wavelength_nm
+from molecular_qm_turbomole.lib.molecule_labels import fill_molecule_labels, molecule_section_name
 from molecular_qm_turbomole.models.turbomole_functional import (
     TURBOMOLE_FUNCTIONAL_VALUES,
     TurbomoleFunctional,
@@ -95,14 +96,7 @@ def _unique(items: Iterable) -> list:
 
 
 def _molecule_section_name(molecule: Molecule) -> str:
-    formula = getattr(molecule, "formula", None)
-    if not formula and hasattr(molecule, "make_formula"):
-        formula = molecule.make_formula()
-    formula = str(formula or "").strip()
-    if formula and not formula.lower().startswith("error"):
-        return formula
-    smiles = str(getattr(molecule, "smiles", None) or "").strip()
-    return smiles or "molecule"
+    return molecule_section_name(molecule)
 
 
 def _settings_from_qm_input(qm_input: TurbomoleQMInput2) -> HyperpolarizabilitySettings:
@@ -200,11 +194,8 @@ async def hyperpol_runner(
 
     try:
         combos = _sweep_combos(model)
-        molecule = await _ensure_db_molecule(qm_input.molecule)
-        if hasattr(molecule, "make_smiles") and not getattr(molecule, "smiles", None):
-            molecule.smiles = molecule.make_smiles()
-        if hasattr(molecule, "make_formula") and not getattr(molecule, "formula", None):
-            molecule.formula = molecule.make_formula()
+        molecule = fill_molecule_labels(await _ensure_db_molecule(qm_input.molecule))
+        molecule = await context.db.save(molecule)
         qm_input = _copy_qm_input(qm_input)
         qm_input.molecule = molecule
 
