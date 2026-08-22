@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.4.5 (2026-08-22)
+
+### Bug Fixes
+
+- Stop duplicating TURBOMOLE scripts in the Hatch wheel
+  ([`e79f71b`](https://github.com/simstack/molecular_qm_turbomole/commit/e79f71bc554d7efe34c6d618a8fed959999fa746))
+
+### Refactoring
+
+- Update Turbomole input models and migration logic
+  ([`353d1e2`](https://github.com/simstack/molecular_qm_turbomole/commit/353d1e295a239765c5a938148ddd4b490924df1a))
+
+
 ## v0.4.4 (2026-08-22)
 
 ### Bug Fixes
