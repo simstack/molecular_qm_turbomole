@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.6.0 (2026-08-22)
+
+### Features
+
+- Enhance hyperpolarization handling and dataset management
+  ([`32df224`](https://github.com/simstack/molecular_qm_turbomole/commit/32df2243d0938f093ef824b187026307d53771d1))
+
+
 ## v0.5.0 (2026-08-22)
 
 ### Features
