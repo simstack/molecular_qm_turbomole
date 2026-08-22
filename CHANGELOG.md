@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.5.0 (2026-08-22)
+
+### Features
+
+- Add openbabel-wheel dependency and enhance molecule handling
+  ([`ad7a9f2`](https://github.com/simstack/molecular_qm_turbomole/commit/ad7a9f291aa9704d2ceece32459ae2e44f03a97b))
+
+
 ## v0.4.5 (2026-08-22)
 
 ### Bug Fixes
