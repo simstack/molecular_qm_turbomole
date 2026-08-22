@@ -7,11 +7,11 @@ from odmantic import Field, Model, Reference
 from pydantic import model_validator
 
 from molecular_qm_models.density_functional import Functional
-from molecular_qm_models.dispersion_correction import DispersionCorrection
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.output_parser import parse_coord_file, write_final_geometry_xyz
 from molecular_qm_turbomole.models.turbomole_input import (
+    DispersionCorrection,
     HyperpolarizabilityModeEnum,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
@@ -398,8 +398,8 @@ class HyperPolarizationRecord(Model):
     field_name: str = "HyperPolarizationRecord"
     molecule: Molecule = Reference()
     functional: Functional = Field(default_factory=Functional)
-    dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
-    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
+    dispersion_correction: Optional[DispersionCorrection] = Field(default_factory=DispersionCorrection)
+    basis_set: Optional[TurbomoleBasisSet2] = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
     started_at: datetime
     hyperpol: Optional[SimpleTable] = None
@@ -445,7 +445,7 @@ async def hyperpolarizibility(
         hyperpolarization_record = HyperPolarizationRecord(
             molecule=await _ensure_db_molecule(molecule),
             functional=optimization_qm_input.functional,
-            dispersion_correction=optimization_qm_input.functional.dispersion_correction,
+            dispersion_correction=optimization_qm_input.dispersion_correction,
             basis_set=optimization_qm_input.basis_set,
             started_at=datetime.now(timezone.utc),
         )

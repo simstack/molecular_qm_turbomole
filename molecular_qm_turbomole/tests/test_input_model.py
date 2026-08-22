@@ -2,11 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from molecular_qm_models.density_functional import Functional, FunctionalEnum
-from molecular_qm_models.dispersion_correction import DispersionCorrection, DispersionCorrectionEnum
+from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.models.turbomole_input import (
+    DispersionCorrection,
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
@@ -25,11 +26,9 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": Functional(
-            functional=FunctionalEnum.B3LYP,
-            dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.NONE),
-        ),
+        "functional": Functional(functional=FunctionalEnum.B3LYP),
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
+        "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.NONE),
     }
     payload.update(overrides)
     return TurbomoleQMInput2(**payload)
@@ -69,6 +68,7 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "turbomole_cosmo" not in schema["properties"]
     assert "blocks" not in schema["properties"]
     assert "control_groups" in schema["properties"]
+    assert "dispersion_correction" in schema["properties"]
     assert "hyperpolarizability" in schema["properties"]
     assert schema["properties"]["hyperpolarizability"]["enum"] == [
         HyperpolarizabilityModeEnum.NONE.value,
@@ -83,6 +83,8 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "gw_enabled" not in ui["ui:order"]
     assert "turbomole_cosmo" not in ui["ui:order"]
     assert "control_groups" in ui["ui:order"]
+    assert ui["ui:order"].index("basis_set") < ui["ui:order"].index("functional")
+    assert ui["ui:order"].index("functional") < ui["ui:order"].index("dispersion_correction")
     assert ui["ui:order"].index("optimization") < ui["ui:order"].index("use_desy")
     assert ui["ui:order"].index("hyperpolarizability") < ui["ui:order"].index(
         "hyperpol_frequency_nm"
@@ -135,6 +137,46 @@ def test_input_writer_emits_define_and_coord(tmp_path):
     assert "8" in define_text.split("conv", 1)[1].splitlines()[1]
     assert "100" in define_text.split("iter", 1)[1].splitlines()[1]
     assert "ri" in define_text
+    assert "dsp" not in define_text
+
+
+def test_input_writer_emits_top_level_dispersion(tmp_path):
+    qm_input = _qm_input(
+        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ)
+    )
+    define = tmp_path / "define.inp"
+    TurbomoleInputWriter(qm_input).write_define_input(str(define))
+    define_text = define.read_text(encoding="utf-8")
+    assert "dsp" in define_text
+    assert "bj" in define_text.split("dsp", 1)[1]
+
+
+def test_dispersion_correction_is_independent_of_functional():
+    model = _qm_input(
+        functional=Functional(functional=FunctionalEnum.B3LYP),
+        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D4),
+    )
+    assert model.dispersion_enum() == DispersionCorrectionEnum.D4
+    doc = model.model_dump_doc()
+    assert doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.D4.value
+
+
+def test_missing_dispersion_is_lifted_from_legacy_functional_payload():
+    from molecular_qm_models.dispersion_correction import (
+        DispersionCorrection as FunctionalDispersionCorrection,
+    )
+
+    model = TurbomoleQMInput2(
+        molecule=_water(),
+        functional=Functional(
+            functional=FunctionalEnum.PBE,
+            dispersion_correction=FunctionalDispersionCorrection(
+                value=DispersionCorrectionEnum.D3
+            ),
+        ),
+        basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
+    )
+    assert model.dispersion_enum() == DispersionCorrectionEnum.D3
 
 
 def test_input_writer_honors_custom_grid_scfconv_and_scfiterlimit(tmp_path):

@@ -81,7 +81,8 @@ def tm_dispersion_name(raw_dispersion: str) -> Optional[str]:
 
 
 def should_use_ri(qm_input: TurbomoleQMInput2) -> bool:
-    return bool(str(qm_input.basis_set.basis_set).strip())
+    basis = getattr(qm_input.basis_set, "basis_set", None)
+    return bool(str(basis or "").strip())
 
 
 class TurbomoleInputWriter:
@@ -105,9 +106,7 @@ class TurbomoleInputWriter:
         use_ri = should_use_ri(self.qm_input)
         basis_name = tm_basis_name(str(self.qm_input.basis_set.basis_set))
         functional_name = tm_functional_name(self.qm_input.functional.functional.value)
-        dispersion = tm_dispersion_name(
-            self.qm_input.functional.dispersion_correction.value.value
-        )
+        dispersion = tm_dispersion_name(self.qm_input.dispersion_enum().value)
         memory_mb = ri_memory_mb()
 
         lines = [

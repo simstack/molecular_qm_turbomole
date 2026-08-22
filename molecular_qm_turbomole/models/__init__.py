@@ -4,6 +4,7 @@ from molecular_qm_turbomole.models.turbomole_input import (
     TURBOMOLE_DEFAULT_MAX_OPT_CYCLES,
     TURBOMOLE_DEFAULT_SCFCONV,
     TURBOMOLE_DEFAULT_SCFITERLIMIT,
+    DispersionCorrection,
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
@@ -18,6 +19,7 @@ __all__ = [
     "TURBOMOLE_DEFAULT_SCFITERLIMIT",
     "SolventModeEnum",
     "HyperpolarizabilityModeEnum",
+    "DispersionCorrection",
     "TurbomoleBasisSet2",
     "TurbomoleQMInput2",
 ]

@@ -5,9 +5,12 @@ from simstack.core.context import context
 from simstack.core.node import node
 from simstack.core.node_runner import NodeRunner
 from simstack.core.simstack_result import SimstackResult
-from simstack.models import StringData
+from simstack.models import Parameters, StringData
 from simstack.models.simple_table import SimpleTable, SimpleTableColumnType
 from simstack.models.table_artifact import AGGridColumnDef, TableArtifactModel
+
+# Host-side DB dump: int-nano does not install the hyperpolarizibility package.
+_table_parameters = Parameters(resource="self", queue="default", force_rerun=True)
 
 
 def _functional_label(record: HyperPolarizationRecord) -> str:
@@ -24,12 +27,15 @@ def _basis_label(record: HyperPolarizationRecord) -> str:
     return str(value) if value else "N/A"
 
 
-@node
+@node(parameters=_table_parameters)
 async def hyperpolarization_records_to_table(
     date_info: StringData, **kwargs
 ) -> SimstackResult:
     """
     Convert stored HyperPolarizationRecord documents into a table of beta_zzz values.
+
+    Runs on the host (resource self). This node only reads MongoDB; it does not
+    need TURBOMOLE or int-nano.
 
     Parameters:
         date_info (StringData): Optional ISO datetime used only for logging.

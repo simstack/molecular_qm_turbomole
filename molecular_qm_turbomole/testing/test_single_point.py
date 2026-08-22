@@ -1,9 +1,12 @@
 import asyncio
 
 from molecular_qm_models.density_functional import Functional, FunctionalEnum
-from molecular_qm_models.dispersion_correction import DispersionCorrection, DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
-from molecular_qm_turbomole.models.turbomole_input import TurbomoleBasisSet2, TurbomoleQMInput2
+from molecular_qm_turbomole.models.turbomole_input import (
+    DispersionCorrection,
+    TurbomoleBasisSet2,
+    TurbomoleQMInput2,
+)
 from molecular_qm_turbomole.nodes.turbomole2 import turbomole2
 from simstack.core.context import context
 from simstack.models import Parameters
@@ -37,10 +40,8 @@ def make_qm_input(molecule: Molecule, *, optimization: bool = False) -> Turbomol
         charge=0,
         multiplicity=1,
         basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
-        functional=Functional(
-            functional=FunctionalEnum.PBE,
-            dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.NONE),
-        ),
+        functional=Functional(functional=FunctionalEnum.PBE),
+        dispersion_correction=DispersionCorrection(),
         optimization=optimization,
         gradients=False,
     )

@@ -1,10 +1,11 @@
 from enum import Enum
 from typing import List, Optional
 
-from odmantic import EmbeddedModel, Field, Model, Reference
+from odmantic import Field, Model, Reference
 from pydantic import field_validator, model_validator
 
 from molecular_qm_models.density_functional import Functional
+from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.lib.control_utils import parse_control_groups
 from simstack.models import simstack_model
@@ -76,7 +77,42 @@ class HyperpolarizabilityModeEnum(str, Enum):
 
 
 @simstack_model
-class TurbomoleBasisSet2(EmbeddedModel):
+class DispersionCorrection(Model):
+    """Dispersion correction for TURBOMOLE jobs, including non-DFT methods."""
+
+    field_name: str = "DispersionCorrection"
+    value: DispersionCorrectionEnum = Field(
+        default=DispersionCorrectionEnum.NONE,
+        json_schema_extra={
+            "enum": [item.value for item in DispersionCorrectionEnum],
+            "description": "Version of the dispersion correction to use",
+            "title": "Dispersion Correction",
+        },
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_fieldname(cls, data):
+        if isinstance(data, dict) and "field_name" not in data:
+            data["field_name"] = cls.__name__
+        return data
+
+    @classmethod
+    def json_schema(cls, recursive=True):
+        schema = cleaned_json_schema(cls)
+        schema["title"] = cls.__name__
+        schema["description"] = "Parameters for dispersion corrections"
+        return schema
+
+    @classmethod
+    def ui_schema(cls):
+        ui_schema = generate_ui_schema(cls)
+        ui_schema["field_name"] = {"ui:widget": "hidden"}
+        return ui_schema
+
+
+@simstack_model
+class TurbomoleBasisSet2(Model):
     """Turbomole basis-set payload without legacy aux-basis UI surface."""
 
     field_name: str = "TurbomoleBasisSet2"
@@ -92,6 +128,12 @@ class TurbomoleBasisSet2(EmbeddedModel):
             data["field_name"] = cls.__name__
         return data
 
+    @classmethod
+    def ui_schema(cls):
+        ui_schema = generate_ui_schema(cls)
+        ui_schema["field_name"] = {"ui:widget": "hidden"}
+        return ui_schema
+
 
 @simstack_model
 class TurbomoleQMInput2(Model):
@@ -99,8 +141,10 @@ class TurbomoleQMInput2(Model):
     Clean TURBOMOLE input for turbomole2.
 
     Field surface mirrors the historical TurbomoleQMInput (without GW).
-    Solvent and hyperpolarizability extra fields are hidden in the UI until
-    the matching mode is selected; stored values are not rewritten.
+    DispersionCorrection is a top-level Model so non-DFT jobs can set it
+    independently of Functional. Solvent and hyperpolarizability extra fields
+    are hidden in the UI until the matching mode is selected; stored values
+    are not rewritten.
     """
 
     field_name: str = "TurbomoleQMInput2"
@@ -148,8 +192,18 @@ class TurbomoleQMInput2(Model):
     )
     active_electrons: int = Field(0, json_schema_extra={"description": "number of active electrons"})
     active_orbitals: int = Field(0, json_schema_extra={"description": "number of active orbitals"})
-    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
+    basis_set: Optional[TurbomoleBasisSet2] = Field(default_factory=TurbomoleBasisSet2)
     functional: Functional
+    dispersion_correction: Optional[DispersionCorrection] = Field(
+        default_factory=DispersionCorrection,
+        json_schema_extra={
+            "description": (
+                "Dispersion correction for the calculation. Independent of the "
+                "density functional so HF, MP2, and other non-DFT jobs can set it."
+            ),
+            "title": "Dispersion Correction",
+        },
+    )
     gradients: bool = Field(
         False, json_schema_extra={"description": "Calculate gradients (forces) for the molecule"}
     )
@@ -234,7 +288,28 @@ class TurbomoleQMInput2(Model):
             return data
         if "field_name" not in data:
             data["field_name"] = cls.__name__
+        if data.get("dispersion_correction") in (None, {}):
+            functional = data.get("functional")
+            nested = None
+            if isinstance(functional, dict):
+                nested = functional.get("dispersion_correction")
+            else:
+                nested = getattr(functional, "dispersion_correction", None)
+            if nested not in (None, {}):
+                if hasattr(nested, "model_dump"):
+                    data["dispersion_correction"] = nested.model_dump(exclude={"id"})
+                else:
+                    data["dispersion_correction"] = nested
         return data
+
+    def dispersion_enum(self) -> DispersionCorrectionEnum:
+        correction = self.dispersion_correction
+        if correction is None:
+            return DispersionCorrectionEnum.NONE
+        value = correction.value
+        if isinstance(value, DispersionCorrectionEnum):
+            return value
+        return DispersionCorrectionEnum(value)
 
     @field_validator("control_groups")
     @classmethod
@@ -280,6 +355,7 @@ class TurbomoleQMInput2(Model):
             "scfiterlimit",
             "basis_set",
             "functional",
+            "dispersion_correction",
             "solvent_mode",
             "solvent",
             "solvent_epsilon",
