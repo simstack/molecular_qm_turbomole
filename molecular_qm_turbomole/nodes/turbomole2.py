@@ -218,7 +218,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"optimization={qm_input.optimization}, "
         f"gradients={qm_input.gradients}, "
         f"basis={qm_input.basis_set.basis_set}, "
-        f"functional={qm_input.functional.functional.value}, "
+        f"functional={qm_input.functional.value}, "
         f"dispersion={qm_input.dispersion_enum().value}, "
         f"gridsize={qm_input.gridsize}, "
         f"scfconv={qm_input.scfconv}, "

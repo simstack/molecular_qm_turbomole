@@ -13,7 +13,7 @@ from hyperpolarizibility.workflows import (
     _optimization_grid_sizes,
     beta_zzz_by_pair,
 )
-from molecular_qm_models.density_functional import Functional, FunctionalEnum
+from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.env import build_ground_state_script
@@ -38,7 +38,7 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": Functional(functional=FunctionalEnum.B3LYP),
+        "functional": FunctionalEnum.B3LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
     }
     payload.update(overrides)
@@ -117,7 +117,7 @@ def test_build_optimization_and_hyperpol_inputs():
     assert hyper_input.hyperpolarizability == HyperpolarizabilityModeEnum.DYNAMIC
     assert hyper_input.hyperpol_frequency_nm == 1064.0
     assert hyper_input.molecule is optimized
-    assert hyper_input.functional.functional == base.functional.functional
+    assert hyper_input.functional == base.functional
     assert hyper_input.basis_set.basis_set == base.basis_set.basis_set
     assert hyper_input.dispersion_correction.value == base.dispersion_correction.value
 
@@ -207,7 +207,7 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     molecule = _water()
     record = HyperPolarizationRecord(
         molecule=molecule,
-        functional=Functional(functional=FunctionalEnum.B3LYP),
+        functional=FunctionalEnum.B3LYP,
         dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
         started_at=datetime.now(timezone.utc),
     )

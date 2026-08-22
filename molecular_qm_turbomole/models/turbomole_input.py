@@ -1,10 +1,10 @@
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from odmantic import Field, Model, Reference
+from odmantic import EmbeddedModel, Field, Model, Reference
 from pydantic import field_validator, model_validator
 
-from molecular_qm_models.density_functional import Functional
+from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.lib.control_utils import parse_control_groups
@@ -76,8 +76,42 @@ class HyperpolarizabilityModeEnum(str, Enum):
     DYNAMIC = "dynamic"
 
 
+def _functional_enum_value(raw: Any) -> Any:
+    if raw is None:
+        return raw
+    if isinstance(raw, FunctionalEnum):
+        return raw
+    if isinstance(raw, dict):
+        raw = raw.get("functional", raw)
+    return getattr(raw, "functional", raw)
+
+
+def _nested_dispersion_payload(functional: Any) -> Any:
+    if isinstance(functional, dict):
+        nested = functional.get("dispersion_correction")
+    else:
+        nested = getattr(functional, "dispersion_correction", None)
+    if nested in (None, {}):
+        return None
+    if hasattr(nested, "model_dump"):
+        return nested.model_dump(exclude={"id"})
+    return nested
+
+
+def normalize_functional_and_dispersion(data: dict) -> dict:
+    functional = data.get("functional")
+    if data.get("dispersion_correction") in (None, {}):
+        nested = _nested_dispersion_payload(functional)
+        if nested is not None:
+            data["dispersion_correction"] = nested
+    coerced = _functional_enum_value(functional)
+    if coerced is not None:
+        data["functional"] = coerced
+    return data
+
+
 @simstack_model
-class DispersionCorrection(Model):
+class DispersionCorrection(EmbeddedModel):
     """Dispersion correction for TURBOMOLE jobs, including non-DFT methods."""
 
     field_name: str = "DispersionCorrection"
@@ -93,7 +127,11 @@ class DispersionCorrection(Model):
     @model_validator(mode="before")
     @classmethod
     def ensure_fieldname(cls, data):
-        if isinstance(data, dict) and "field_name" not in data:
+        if not isinstance(data, dict):
+            return data
+        data.pop("id", None)
+        data.pop("_id", None)
+        if "field_name" not in data:
             data["field_name"] = cls.__name__
         return data
 
@@ -112,7 +150,7 @@ class DispersionCorrection(Model):
 
 
 @simstack_model
-class TurbomoleBasisSet2(Model):
+class TurbomoleBasisSet2(EmbeddedModel):
     """Turbomole basis-set payload without legacy aux-basis UI surface."""
 
     field_name: str = "TurbomoleBasisSet2"
@@ -124,7 +162,11 @@ class TurbomoleBasisSet2(Model):
     @model_validator(mode="before")
     @classmethod
     def ensure_fieldname(cls, data):
-        if isinstance(data, dict) and "field_name" not in data:
+        if not isinstance(data, dict):
+            return data
+        data.pop("id", None)
+        data.pop("_id", None)
+        if "field_name" not in data:
             data["field_name"] = cls.__name__
         return data
 
@@ -141,8 +183,8 @@ class TurbomoleQMInput2(Model):
     Clean TURBOMOLE input for turbomole2.
 
     Field surface mirrors the historical TurbomoleQMInput (without GW).
-    DispersionCorrection is a top-level Model so non-DFT jobs can set it
-    independently of Functional. Solvent and hyperpolarizability extra fields
+    Functional is an enum; DispersionCorrection is a required sibling field
+    (use NONE to turn it off). Solvent and hyperpolarizability extra fields
     are hidden in the UI until the matching mode is selected; stored values
     are not rewritten.
     """
@@ -192,14 +234,22 @@ class TurbomoleQMInput2(Model):
     )
     active_electrons: int = Field(0, json_schema_extra={"description": "number of active electrons"})
     active_orbitals: int = Field(0, json_schema_extra={"description": "number of active orbitals"})
-    basis_set: Optional[TurbomoleBasisSet2] = Field(default_factory=TurbomoleBasisSet2)
-    functional: Functional
-    dispersion_correction: Optional[DispersionCorrection] = Field(
+    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
+    functional: FunctionalEnum = Field(
+        FunctionalEnum.B3LYP,
+        json_schema_extra={
+            "enum": [item.value for item in FunctionalEnum],
+            "description": "density functional",
+            "title": "Functional",
+        },
+    )
+    dispersion_correction: DispersionCorrection = Field(
         default_factory=DispersionCorrection,
         json_schema_extra={
             "description": (
                 "Dispersion correction for the calculation. Independent of the "
-                "density functional so HF, MP2, and other non-DFT jobs can set it."
+                "density functional so HF, MP2, and other non-DFT jobs can set it. "
+                "Use NONE to omit a correction."
             ),
             "title": "Dispersion Correction",
         },
@@ -288,25 +338,10 @@ class TurbomoleQMInput2(Model):
             return data
         if "field_name" not in data:
             data["field_name"] = cls.__name__
-        if data.get("dispersion_correction") in (None, {}):
-            functional = data.get("functional")
-            nested = None
-            if isinstance(functional, dict):
-                nested = functional.get("dispersion_correction")
-            else:
-                nested = getattr(functional, "dispersion_correction", None)
-            if nested not in (None, {}):
-                if hasattr(nested, "model_dump"):
-                    data["dispersion_correction"] = nested.model_dump(exclude={"id"})
-                else:
-                    data["dispersion_correction"] = nested
-        return data
+        return normalize_functional_and_dispersion(data)
 
     def dispersion_enum(self) -> DispersionCorrectionEnum:
-        correction = self.dispersion_correction
-        if correction is None:
-            return DispersionCorrectionEnum.NONE
-        value = correction.value
+        value = self.dispersion_correction.value
         if isinstance(value, DispersionCorrectionEnum):
             return value
         return DispersionCorrectionEnum(value)
@@ -322,6 +357,13 @@ class TurbomoleQMInput2(Model):
         schema = cleaned_json_schema(cls)
         schema["title"] = cls.__name__
         properties = schema.setdefault("properties", {})
+        properties["functional"] = {
+            "type": "string",
+            "enum": [item.value for item in FunctionalEnum],
+            "default": FunctionalEnum.B3LYP.value,
+            "title": "Functional",
+            "description": "density functional",
+        }
         properties["hyperpolarizability"] = {
             "type": "string",
             "enum": [e.value for e in HyperpolarizabilityModeEnum],
@@ -339,6 +381,10 @@ class TurbomoleQMInput2(Model):
             if "anyOf" in field_schema:
                 field_schema["type"] = "number"
                 field_schema.pop("anyOf", None)
+        required = schema.setdefault("required", [])
+        for name in ("basis_set", "functional", "dispersion_correction"):
+            if name not in required:
+                required.append(name)
         return schema
 
     @classmethod
@@ -375,6 +421,7 @@ class TurbomoleQMInput2(Model):
             "control_groups",
         ]
         ui_schema.setdefault("ui:options", {})["ui:foldable"] = True
+        ui_schema.setdefault("functional", {})["ui:widget"] = "select"
         ui_schema.setdefault("hyperpolarizability", {})["ui:widget"] = "select"
         ui_schema.setdefault("solvent", {})["ui:condition"] = {
             "solvent_mode": SolventModeEnum.IMPLICIT.value

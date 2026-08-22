@@ -5,7 +5,7 @@ from molecular_qm_turbomole.lib.control_utils import (
     parse_control_group,
     parse_control_groups,
 )
-from molecular_qm_models.density_functional import Functional, FunctionalEnum
+from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.models.turbomole_input import (
     TurbomoleBasisSet2,
@@ -24,7 +24,7 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": Functional(functional=FunctionalEnum.B3LYP),
+        "functional": FunctionalEnum.B3LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
     }
     payload.update(overrides)

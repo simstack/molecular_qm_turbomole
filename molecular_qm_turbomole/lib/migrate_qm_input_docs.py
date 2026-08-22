@@ -1,11 +1,8 @@
-"""Rewrite stored TURBOMOLE input / hyperpol records after EmbeddedModel -> Model.
+"""Rewrite stored TURBOMOLE input / hyperpol records after the input shape change.
 
-Nested ``TurbomoleBasisSet2`` and ``DispersionCorrection`` are now odmantic
-``Model``s, so documents without ``id`` fail to parse and disappear from the UI.
-Top-level ``dispersion_correction`` was also added; legacy docs only nested it
-under ``functional``.
-
-This module operates on raw BSON dicts so ODMantic parse errors cannot skip docs.
+``TurbomoleBasisSet2`` and ``DispersionCorrection`` are required embedded
+payloads (not optional Models). ``functional`` is a ``FunctionalEnum`` string;
+legacy docs nested dispersion under ``functional``.
 """
 
 from __future__ import annotations
@@ -38,8 +35,8 @@ HYPERPOL_MODE_ALIASES = {
 }
 
 QM_INPUT2_TOP_LEVEL_KEYS = set(TurbomoleQMInput2.model_fields) | {"_id"}
-BASIS_SET_KEYS = {"id", "field_name", "basis_set"}
-DISPERSION_KEYS = {"id", "field_name", "value"}
+BASIS_SET_KEYS = {"field_name", "basis_set"}
+DISPERSION_KEYS = {"field_name", "value"}
 
 
 def _nested_id(payload: Dict[str, Any]) -> Optional[ObjectId]:
@@ -65,15 +62,11 @@ def _enum_value(raw: Any, default: str) -> str:
 def as_basis_set_model_doc(raw: Any) -> Dict[str, Any]:
     if isinstance(raw, dict):
         basis = raw.get("basis_set") or TURBOMOLE_DEFAULT_BASIS_SET
-        existing_id = _nested_id(raw)
     elif raw in (None, ""):
         basis = TURBOMOLE_DEFAULT_BASIS_SET
-        existing_id = None
     else:
         basis = str(raw)
-        existing_id = None
     return {
-        "id": existing_id or ObjectId(),
         "field_name": TurbomoleBasisSet2.__name__,
         "basis_set": str(basis),
     }
@@ -82,15 +75,11 @@ def as_basis_set_model_doc(raw: Any) -> Dict[str, Any]:
 def as_dispersion_model_doc(raw: Any) -> Dict[str, Any]:
     if isinstance(raw, dict):
         value = _enum_value(raw.get("value"), "NONE")
-        existing_id = _nested_id(raw)
     elif raw in (None, ""):
         value = "NONE"
-        existing_id = None
     else:
         value = _enum_value(raw, "NONE")
-        existing_id = None
     return {
-        "id": existing_id or ObjectId(),
         "field_name": DispersionCorrection.__name__,
         "value": value,
     }
@@ -129,13 +118,18 @@ def _hyperpolarizability_mode(doc: Dict[str, Any]) -> str:
 
 
 def _hyperpol_frequency_nm(doc: Dict[str, Any]) -> float:
-    frequency = doc.get("hyperpol_frequency_nm")
-    if frequency in (None, ""):
-        frequency = doc.get("hyperpol_frequency_nm_ui") or 0.0
-    try:
-        return float(frequency or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
+    def _as_float(raw: Any) -> float:
+        if raw in (None, ""):
+            return 0.0
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 0.0
+
+    stored = _as_float(doc.get("hyperpol_frequency_nm"))
+    if stored > 0.0:
+        return stored
+    return _as_float(doc.get("hyperpol_frequency_nm_ui"))
 
 
 def _docs_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
@@ -148,6 +142,11 @@ def upgrade_turbomole_qm_input_doc(doc: Dict[str, Any]) -> Tuple[Dict[str, Any],
     upgraded["field_name"] = TurbomoleQMInput2.__name__
     upgraded["basis_set"] = as_basis_set_model_doc(doc.get("basis_set"))
     upgraded["dispersion_correction"] = _dispersion_from_doc(doc)
+    functional = doc.get("functional")
+    if isinstance(functional, dict):
+        upgraded["functional"] = functional.get("functional") or "B3LYP"
+    elif hasattr(functional, "functional"):
+        upgraded["functional"] = getattr(functional.functional, "value", functional.functional)
     upgraded["hyperpolarizability"] = _hyperpolarizability_mode(doc)
     upgraded["hyperpol_frequency_nm"] = _hyperpol_frequency_nm(doc)
     stripped = {key: value for key, value in upgraded.items() if key in QM_INPUT2_TOP_LEVEL_KEYS}
@@ -184,6 +183,9 @@ def upgrade_hyperpolarization_record_doc(doc: Dict[str, Any]) -> Tuple[Dict[str,
     else:
         upgraded["basis_set"] = as_basis_set_model_doc(None)
     upgraded["dispersion_correction"] = _dispersion_from_doc(upgraded)
+    functional = upgraded.get("functional")
+    if isinstance(functional, dict):
+        upgraded["functional"] = functional.get("functional") or "B3LYP"
     if isinstance(upgraded.get("hyperpol"), dict):
         upgraded["hyperpol"] = _ensure_nested_model_id(
             upgraded["hyperpol"], field_name="SimpleTable"
@@ -201,13 +203,15 @@ def upgrade_stored_document(doc: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any
 
 
 def known_collections() -> List[str]:
-    return [
-        TurbomoleQMInput2.__collection__,
+    names = [
+        getattr(TurbomoleQMInput2, "__collection__", None),
         "turbomole_qm_input",
+        "turbomole_qm_input2",
         "hyper_polarization_record",
-        TurbomoleBasisSet2.__collection__,
-        DispersionCorrection.__collection__,
+        "turbomole_basis_set2",
+        "dispersion_correction",
     ]
+    return [name for name in names if name]
 
 
 def collections_with_legacy_docs(db, extra_names: Sequence[str] = ()) -> List[str]:
@@ -299,7 +303,7 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
         _molecule_section_name,
     )
     from hyperpolarizibility.workflows import HyperPolarizationRecord
-    from molecular_qm_models.density_functional import Functional
+    from molecular_qm_models.density_functional import Functional, FunctionalEnum
     from simstack.models import StringData
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadata
@@ -326,7 +330,13 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
         section_name = _molecule_section_name(molecule) if molecule is not None else "molecule"
         section = dataset[section_name]
         basis = getattr(record.basis_set, "basis_set", None) or TURBOMOLE_DEFAULT_BASIS_SET
-        functional = record.functional if isinstance(record.functional, Functional) else Functional()
+        functional_value = record.functional
+        if isinstance(functional_value, Functional):
+            functional = functional_value
+        elif isinstance(functional_value, FunctionalEnum):
+            functional = Functional(functional=functional_value)
+        else:
+            functional = Functional()
         row = _hyperpol_dataset_row(
             basis_set=str(basis),
             functional=functional,

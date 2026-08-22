@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 from odmantic import Field, Model, Reference
 from pydantic import model_validator
 
-from molecular_qm_models.density_functional import Functional
+from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.output_parser import parse_coord_file, write_final_geometry_xyz
@@ -15,6 +15,7 @@ from molecular_qm_turbomole.models.turbomole_input import (
     HyperpolarizabilityModeEnum,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
+    normalize_functional_and_dispersion,
 )
 from molecular_qm_turbomole.nodes.turbomole2 import turbomole2
 from simstack.core.context import context
@@ -397,14 +398,29 @@ def _extract_structure_from_result(result: Any, node_runner: NodeRunner) -> Opti
 class HyperPolarizationRecord(Model):
     field_name: str = "HyperPolarizationRecord"
     molecule: Molecule = Reference()
-    functional: Functional = Field(default_factory=Functional)
-    dispersion_correction: Optional[DispersionCorrection] = Field(default_factory=DispersionCorrection)
-    basis_set: Optional[TurbomoleBasisSet2] = Field(default_factory=TurbomoleBasisSet2)
+    functional: FunctionalEnum = Field(
+        FunctionalEnum.B3LYP,
+        json_schema_extra={
+            "enum": [item.value for item in FunctionalEnum],
+            "title": "Functional",
+        },
+    )
+    dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
+    basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
     started_at: datetime
     hyperpol: Optional[SimpleTable] = None
     success: bool = False
     error: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_fieldname(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if "field_name" not in data:
+            data["field_name"] = cls.__name__
+        return normalize_functional_and_dispersion(data)
 
 
 @node(parameters=workflow_parameters)

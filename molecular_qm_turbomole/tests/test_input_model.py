@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from molecular_qm_models.density_functional import Functional, FunctionalEnum
+from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
@@ -26,7 +26,7 @@ def _water() -> Molecule:
 def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
-        "functional": Functional(functional=FunctionalEnum.B3LYP),
+        "functional": FunctionalEnum.B3LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
         "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.NONE),
     }
@@ -69,6 +69,13 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "blocks" not in schema["properties"]
     assert "control_groups" in schema["properties"]
     assert "dispersion_correction" in schema["properties"]
+    assert "dispersion_correction" not in schema["properties"]["functional"].get("properties", {})
+    assert schema["properties"]["functional"]["enum"]
+    assert "anyOf" not in schema["properties"]["basis_set"]
+    assert "anyOf" not in schema["properties"]["dispersion_correction"]
+    assert "basis_set" in schema["required"]
+    assert "dispersion_correction" in schema["required"]
+    assert "functional" in schema["required"]
     assert "hyperpolarizability" in schema["properties"]
     assert schema["properties"]["hyperpolarizability"]["enum"] == [
         HyperpolarizabilityModeEnum.NONE.value,
@@ -153,7 +160,7 @@ def test_input_writer_emits_top_level_dispersion(tmp_path):
 
 def test_dispersion_correction_is_independent_of_functional():
     model = _qm_input(
-        functional=Functional(functional=FunctionalEnum.B3LYP),
+        functional=FunctionalEnum.B3LYP,
         dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D4),
     )
     assert model.dispersion_enum() == DispersionCorrectionEnum.D4
@@ -162,20 +169,16 @@ def test_dispersion_correction_is_independent_of_functional():
 
 
 def test_missing_dispersion_is_lifted_from_legacy_functional_payload():
-    from molecular_qm_models.dispersion_correction import (
-        DispersionCorrection as FunctionalDispersionCorrection,
-    )
-
     model = TurbomoleQMInput2(
         molecule=_water(),
-        functional=Functional(
-            functional=FunctionalEnum.PBE,
-            dispersion_correction=FunctionalDispersionCorrection(
-                value=DispersionCorrectionEnum.D3
-            ),
-        ),
+        functional={
+            "field_name": "Functional",
+            "functional": "PBE",
+            "dispersion_correction": {"field_name": "DispersionCorrection", "value": "D3"},
+        },
         basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
     )
+    assert model.functional == FunctionalEnum.PBE
     assert model.dispersion_enum() == DispersionCorrectionEnum.D3
 
 

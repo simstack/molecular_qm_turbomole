@@ -38,7 +38,7 @@ def _qm_input(**overrides) -> TurbomoleQMInput2:
     payload = {
         "molecule": _water(),
         "name": "water",
-        "functional": Functional(functional=FunctionalEnum.B3LYP),
+        "functional": FunctionalEnum.B3LYP,
         "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
         "solvent_mode": SolventModeEnum.IMPLICIT,
@@ -113,7 +113,7 @@ def test_qm_input_for_combo_overrides_basis_and_functional_only():
         functional_enum=FunctionalEnum.PBE0,
     )
     assert combo.basis_set.basis_set == "def2-TZVPP"
-    assert combo.functional.functional == FunctionalEnum.PBE0
+    assert combo.functional == FunctionalEnum.PBE0
     assert combo.dispersion_correction.value == DispersionCorrectionEnum.D3BJ
     assert combo.solvent == "chloroform"
     assert combo.solvent_mode == SolventModeEnum.IMPLICIT

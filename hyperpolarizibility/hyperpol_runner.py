@@ -122,7 +122,7 @@ def _qm_input_for_combo(
 ) -> TurbomoleQMInput2:
     qm_input = _copy_qm_input(base)
     qm_input.basis_set = TurbomoleBasisSet2(basis_set=basis_set)
-    qm_input.functional = _functional_for_enum(functional_enum)
+    qm_input.functional = functional_enum
     qm_input.name = f"{base.name}_{functional_enum.value}_{basis_set}"
     return qm_input
 

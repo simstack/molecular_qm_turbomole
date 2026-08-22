@@ -6,8 +6,7 @@ from simstack.core.node import node
 from simstack.core.node_runner import NodeRunner
 from simstack.core.simstack_result import SimstackResult
 from simstack.models import Parameters, StringData
-from simstack.models.simple_table import SimpleTable, SimpleTableColumnType
-from simstack.models.table_artifact import AGGridColumnDef, TableArtifactModel
+from simstack.models.simple_table import SimpleTable
 
 # Host-side DB dump: int-nano does not install the hyperpolarizibility package.
 _table_parameters = Parameters(resource="self", queue="default", force_rerun=True)
@@ -41,8 +40,7 @@ async def hyperpolarization_records_to_table(
         date_info (StringData): Optional ISO datetime used only for logging.
 
     SimstackResult:
-        table_artifact (TableArtifactModel): Grid view of the records.
-        simple_table (SimpleTable): Same rows as a SimpleTable.
+        simple_table (SimpleTable): Rows of stored hyperpolarization records.
     """
     node_runner: NodeRunner = kwargs["node_runner"]
 
@@ -55,59 +53,42 @@ async def hyperpolarization_records_to_table(
     records = await context.db.find(HyperPolarizationRecord)
     node_runner.info(f"Found {len(records)} HyperPolarizationRecords.")
 
-    columns = [
-        AGGridColumnDef(field="started_at", headerName="Started At", sortable=True),
-        AGGridColumnDef(field="molecule_smiles", headerName="Molecule (SMILES)"),
-        AGGridColumnDef(field="functional", headerName="Functional"),
-        AGGridColumnDef(field="basis_set", headerName="Basis Set"),
-        AGGridColumnDef(field="beta_pair_1_zzz_1e30_esu", headerName="beta_pair_1_zzz_1e30_esu"),
-        AGGridColumnDef(field="beta_pair_2_zzz_1e30_esu", headerName="beta_pair_2_zzz_1e30_esu"),
-        AGGridColumnDef(field="beta_pair_3_zzz_1e30_esu", headerName="beta_pair_3_zzz_1e30_esu"),
-        AGGridColumnDef(field="success", headerName="Success", sortable=True),
-        AGGridColumnDef(field="error", headerName="Error"),
-    ]
+    simple_table = SimpleTable(name="Hyperpolarization Results")
+    simple_table.add_column("Started At", "string")
+    simple_table.add_column("Molecule (SMILES)", "string")
+    simple_table.add_column("Functional", "string")
+    simple_table.add_column("Basis Set", "string")
+    simple_table.add_column("beta_pair_1_zzz_1e30_esu", "float")
+    simple_table.add_column("beta_pair_2_zzz_1e30_esu", "float")
+    simple_table.add_column("beta_pair_3_zzz_1e30_esu", "float")
+    simple_table.add_column("Success", "string")
+    simple_table.add_column("Error", "string")
 
-    row_data = []
     for record in records:
         betas = beta_zzz_by_pair(record.hyperpol)
         row = {
-            "started_at": record.started_at.isoformat() if record.started_at else None,
-            "molecule_smiles": record.molecule.smiles if record.molecule else "N/A",
-            "functional": _functional_label(record),
-            "basis_set": _basis_label(record),
+            "Started At": record.started_at.isoformat() if record.started_at else None,
+            "Molecule (SMILES)": record.molecule.smiles if record.molecule else "N/A",
+            "Functional": _functional_label(record),
+            "Basis Set": _basis_label(record),
             "beta_pair_1_zzz_1e30_esu": betas.get(1),
             "beta_pair_2_zzz_1e30_esu": betas.get(2),
             "beta_pair_3_zzz_1e30_esu": betas.get(3),
-            "success": record.success,
-            "error": record.error or "",
+            "Success": record.success,
+            "Error": record.error or "",
         }
         node_runner.info(
-            f"Record: started_at={row['started_at']}, "
-            f"molecule_smiles={row['molecule_smiles']}, "
-            f"functional={row['functional']}, "
-            f"basis_set={row['basis_set']}, "
+            f"Record: started_at={row['Started At']}, "
+            f"molecule_smiles={row['Molecule (SMILES)']}, "
+            f"functional={row['Functional']}, "
+            f"basis_set={row['Basis Set']}, "
             f"beta_pair_1_zzz_1e30_esu={row['beta_pair_1_zzz_1e30_esu']}, "
             f"beta_pair_2_zzz_1e30_esu={row['beta_pair_2_zzz_1e30_esu']}, "
             f"beta_pair_3_zzz_1e30_esu={row['beta_pair_3_zzz_1e30_esu']}, "
-            f"success={row['success']}, "
-            f"error={row['error']}"
+            f"success={row['Success']}, "
+            f"error={row['Error']}"
         )
-        row_data.append(row)
+        simple_table.add_row(row)
 
-    table_artifact = TableArtifactModel(
-        columns_defs=columns,
-        row_data=row_data,
-    )
-    simple_table = SimpleTable(
-        name="Hyperpolarization Results",
-        heading=[col.headerName for col in columns],
-        row=[
-            {col.headerName: row[col.field] for col in columns}
-            for row in row_data
-        ],
-        type=[SimpleTableColumnType.STRING] * len(columns),
-    )
-
-    node_runner.table_artifact = table_artifact
     node_runner.simple_table = simple_table
     return node_runner.succeed()
