@@ -1,4 +1,22 @@
 ================================================================================
+Node: database_from_molecules
+Function Mapping: molecular_qm_models.make_database_from_molecules.database_from_molecules
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  molecule_list        | molecular_qm_models.molecule.MoleculeList          | None                
+  name                 | simstack.models.base_types.StringData              | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
 Node: get_file
 Function Mapping: simstack.methods.get_file.get_file
 Description: Retrieves a file from a given source and saves it to the specified target path.
@@ -16,6 +34,120 @@ Result Mappings:
   Arg Name             | Model                                              | Field               
   ---------------------+----------------------------------------------------+---------------------
   result               | simstack.models.files.FileStack                    | FileStack: The modified FileStack with the local resource.
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: turbomole2
+Function Mapping: molecular_qm_turbomole.nodes.turbomole2.turbomole2
+Description: TURBOMOLE node for single-point, geometry optimization, and first hyperpolarizability (beta).
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  qm_input             | molecular_qm_turbomole.models.turbomole_input.TurbomoleQMInput2 | Calculation settings and molecule.
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | molecular_qm_models.qm_result.QMResult             | : Final energy, structure, and convergence status.
+  hyperpolarizability  | simstack.models.simple_table.SimpleTable           | : Frequency-pair beta_zzz values when hyperpolarizability is requested.
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: molecule_list_from_file
+Function Mapping: molecular_qm_models.molecule_list_from_file.molecule_list_from_file
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  file                 | simstack.models.files.FileStack                    | None                
+
+Result Mappings:
+  (none)
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: async_adder
+Function Mapping: simstack.methods.multiple_executor.async_adder
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  arg                  | simstack.models.base_types.BinaryOperationInput    | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.models.base_types.FloatData               | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: multiple_executor
+Function Mapping: simstack.methods.multiple_executor.multiple_executor
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  executor             | simstack.methods.multiple_executor.MultipleExecutorInput | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.methods.multiple_executor.MultipleExecutorOutput | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: multiple_executor_adder
+Function Mapping: simstack.methods.multiple_executor.multiple_executor_adder
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  arg1                 | simstack.models.base_types.BinaryOperationInput    | None                
+  arg2                 | simstack.models.base_types.BinaryOperationInput    | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | simstack.models.base_types.BinaryOperationInput    | None                
+
+Called Nodes (Children):
+  (none)
+--------------------------------------------------------------------------------
+
+================================================================================
+Node: switch_git
+Function Mapping: simstack.methods.switch_git.switch_git
+Description: WARNING: Missing description
+
+Input Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  branch               | simstack.models.base_types.StringData              | None                
+
+Result Mappings:
+  Arg Name             | Model                                              | Field               
+  ---------------------+----------------------------------------------------+---------------------
+  result               | builtins.bool                                      | None                
 
 Called Nodes (Children):
   (none)
@@ -126,136 +258,5 @@ Result Mappings:
 
 Called Nodes (Children):
   - simstack.methods.archive_files.archive_files
---------------------------------------------------------------------------------
-
-================================================================================
-Node: async_adder
-Function Mapping: simstack.methods.multiple_executor.async_adder
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  arg                  | simstack.models.base_types.BinaryOperationInput    | None                
-
-Result Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  result               | simstack.models.base_types.FloatData               | None                
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: multiple_executor
-Function Mapping: simstack.methods.multiple_executor.multiple_executor
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  executor             | simstack.methods.multiple_executor.MultipleExecutorInput | None                
-
-Result Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  result               | simstack.methods.multiple_executor.MultipleExecutorOutput | None                
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: multiple_executor_adder
-Function Mapping: simstack.methods.multiple_executor.multiple_executor_adder
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  arg1                 | simstack.models.base_types.BinaryOperationInput    | None                
-  arg2                 | simstack.models.base_types.BinaryOperationInput    | None                
-
-Result Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  result               | simstack.models.base_types.BinaryOperationInput    | None                
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: molecule_list_from_file
-Function Mapping: molecular_qm_models.molecule_list_from_file.molecule_list_from_file
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  file                 | simstack.models.files.FileStack                    | None                
-
-Result Mappings:
-  (none)
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: switch_git
-Function Mapping: simstack.methods.switch_git.switch_git
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  branch               | simstack.models.base_types.StringData              | None                
-
-Result Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  result               | builtins.bool                                      | None                
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: turbomole2
-Function Mapping: molecular_qm_turbomole.nodes.turbomole2.turbomole2
-Description: Refactored TURBOMOLE node focused on single-point and geometry optimization.
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  qm_input             | molecular_qm_turbomole.models.turbomole_input.TurbomoleQMInput2 | Calculation settings and molecule.
-
-Result Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  result               | molecular_qm_models.qm_result.QMResult             | : Final energy, structure, and convergence status.
-
-Called Nodes (Children):
-  (none)
---------------------------------------------------------------------------------
-
-================================================================================
-Node: database_from_molecules
-Function Mapping: molecular_qm_models.make_database_from_molecules.database_from_molecules
-Description: WARNING: Missing description
-
-Input Mappings:
-  Arg Name             | Model                                              | Field               
-  ---------------------+----------------------------------------------------+---------------------
-  molecule_list        | molecular_qm_models.molecule.MoleculeList          | None                
-  name                 | simstack.models.base_types.StringData              | None                
-
-Result Mappings:
-  (none)
-
-Called Nodes (Children):
-  (none)
 --------------------------------------------------------------------------------
 

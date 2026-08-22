@@ -20,6 +20,19 @@ PROTECTED_CONTROL_GROUPS = frozenset(
 )
 
 
+# TURBOMOLE DC / static placeholder wavelength used with an optical lambda.
+TURBOMOLE_STATIC_WAVELENGTH_NM = 45560000000.0
+
+
+def render_hyperpolarizability_data_group(wavelength_nm: float) -> list[str]:
+    """Build `$scfinstab hyperpol nm` for static or frequency-dependent β."""
+    lines = ["$scfinstab hyperpol nm"]
+    if float(wavelength_nm or 0.0) != 0.0:
+        lines.append(f"{TURBOMOLE_STATIC_WAVELENGTH_NM:.1f}")
+        lines.append(f"{float(wavelength_nm):.10g}")
+    return lines
+
+
 def render_dft_data_group(functional_name: str, gridsize: str) -> list[str]:
     return [
         "$dft",

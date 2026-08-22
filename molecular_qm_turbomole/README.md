@@ -37,6 +37,23 @@ uv run python -m molecular_qm_turbomole.testing.test_single_point
 uv run python -m molecular_qm_turbomole.testing.test_optimization
 ```
 
+## Versioning
+
+The package version comes from git tags (`hatch-vcs`). Tags and GitHub releases
+are created on push to `main` by [python-semantic-release](https://python-semantic-release.readthedocs.io/)
+from [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `fix:` → patch (`0.1.0` → `0.1.1`)
+- `feat:` → minor (`0.1.0` → `0.2.0`)
+- `BREAKING CHANGE:` → minor while the version is `0.x` (`0.2.0` → `0.3.0`)
+
+Several `fix:` commits since the last tag become **one** new tag, not one tag
+per commit. Preview the next version locally:
+
+```bash
+uvx --from python-semantic-release semantic-release version --print
+```
+
 ## Notes
 
 `TurbomoleQMInput2` keeps the historical field surface (without GW) but does not

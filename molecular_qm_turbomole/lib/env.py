@@ -108,3 +108,24 @@ def build_ground_state_script(*, optimization: bool, use_ri: bool, gradients: bo
     lines.append('echo "[TM] produced files:"')
     lines.append("ls -la")
     return "\n".join(lines)
+
+
+def build_hyperpolarizability_script() -> str:
+    lines = [
+        'echo "[TM] workdir: $(pwd)"',
+        'echo "[TM] escf: $(command -v escf)"',
+        "escf > escf.out 2>&1 || { "
+        'echo "[TM ERROR] escf failed for hyperpol."; '
+        "tail -n 200 escf.out || true; "
+        "exit 3; "
+        "}",
+        "test -f hyperpols || { "
+        'echo "[TM ERROR] hyperpols file not produced."; '
+        "ls -la; "
+        "tail -n 200 escf.out || true; "
+        "exit 4; "
+        "}",
+        'echo "[TM] produced files:"',
+        "ls -la",
+    ]
+    return "\n".join(lines)

@@ -1,9 +1,14 @@
+import pytest
+from pydantic import ValidationError
+
 from molecular_qm_models.density_functional import Functional, FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrection, DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.models.turbomole_input import (
+    HyperpolarizabilityModeEnum,
+    SolventModeEnum,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
 )
@@ -35,15 +40,14 @@ def test_turbomole_qm_input2_keeps_explicit_values_without_massaging():
         solvent_mode="none",
         solvent="water",
         solvent_epsilon=None,
-        hyperpolarizability=False,
+        hyperpolarizability=HyperpolarizabilityModeEnum.NONE,
         hyperpol_frequency_nm=1064.0,
-        edelt=0.005,
     )
     assert model.solvent == "water"
     assert model.solvent_mode.value == "none"
-    assert model.hyperpolarizability is False
+    assert model.hyperpolarizability == HyperpolarizabilityModeEnum.NONE
     assert model.hyperpol_frequency_nm == 1064.0
-    assert model.edelt == 0.005
+    assert "edelt" not in TurbomoleQMInput2.model_fields
     assert "gw_enabled" not in TurbomoleQMInput2.model_fields
     assert "gw_settings" not in TurbomoleQMInput2.model_fields
     assert "hyperpolarizability_settings" not in TurbomoleQMInput2.model_fields
@@ -66,8 +70,14 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "blocks" not in schema["properties"]
     assert "control_groups" in schema["properties"]
     assert "hyperpolarizability" in schema["properties"]
+    assert schema["properties"]["hyperpolarizability"]["enum"] == [
+        HyperpolarizabilityModeEnum.NONE.value,
+        HyperpolarizabilityModeEnum.STATIC.value,
+        HyperpolarizabilityModeEnum.DYNAMIC.value,
+    ]
     assert "hyperpol_frequency_nm" in schema["properties"]
-    assert "edelt" in schema["properties"]
+    assert "edelt" not in schema["properties"]
+    assert "edelt" not in ui["ui:order"]
     assert "solvent_epsilon" in schema["properties"]
     assert "solvent_refind" in schema["properties"]
     assert "gw_enabled" not in ui["ui:order"]
@@ -77,6 +87,29 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert ui["ui:order"].index("hyperpolarizability") < ui["ui:order"].index(
         "hyperpol_frequency_nm"
     )
+    assert ui["solvent"]["ui:condition"] == {
+        "solvent_mode": SolventModeEnum.IMPLICIT.value
+    }
+    assert ui["solvent_epsilon"]["ui:condition"] == {
+        "solvent_mode": SolventModeEnum.EXPLICIT.value
+    }
+    assert ui["solvent_refind"]["ui:condition"] == {
+        "solvent_mode": SolventModeEnum.EXPLICIT.value
+    }
+    assert ui["hyperpol_frequency_nm"]["ui:condition"] == {
+        "hyperpolarizability": HyperpolarizabilityModeEnum.DYNAMIC.value
+    }
+
+
+def test_boolean_hyperpolarizability_is_rejected():
+    with pytest.raises(ValidationError):
+        _qm_input(hyperpolarizability=True, hyperpol_frequency_nm=1064.0)
+
+
+def test_leftover_edelt_payload_is_rejected():
+    with pytest.raises(ValidationError):
+        _qm_input(edelt=0.005)
+
 
 def test_input_writer_emits_define_and_coord(tmp_path):
     qm_input = _qm_input(optimization=False, name="water-sp")

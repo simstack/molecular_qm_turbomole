@@ -9,7 +9,16 @@ from molecular_qm_turbomole.lib.control_utils import append_control_groups
 from molecular_qm_turbomole.lib.env import (
     build_define_script,
     build_ground_state_script,
+    build_hyperpolarizability_script,
     prepend_tm_env,
+)
+from molecular_qm_turbomole.lib.hyperpol import (
+    apply_hyperpolarizability_control,
+    hyperpolarizability_requested,
+    hyperpolarizability_wavelength_nm,
+    parse_hyperpolarizability_table,
+    validate_hyperpolarizability_request,
+    verify_dynamic_hyperpols_output,
 )
 from molecular_qm_turbomole.lib.input_writer import (
     TurbomoleInputWriter,
@@ -58,6 +67,8 @@ OUTPUT_FILES = (
     "job.last",
     "final_geometry.xyz",
     "gradient",
+    "escf.out",
+    "hyperpols",
 )
 
 
@@ -80,6 +91,7 @@ def _validate_request(qm_input: TurbomoleQMInput2) -> None:
             raise ValueError(
                 f"Atom {index} ({element}) has non-finite coordinates: {coordinates!r}."
             )
+    validate_hyperpolarizability_request(qm_input)
 
 
 def _collect_output_files() -> list[str]:
@@ -89,13 +101,14 @@ def _collect_output_files() -> list[str]:
 @node(parameters=parameters)
 async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     """
-    Refactored TURBOMOLE node focused on single-point and geometry optimization.
+    TURBOMOLE node for single-point, geometry optimization, and first hyperpolarizability (beta).
 
     Parameters:
         qm_input (TurbomoleQMInput2): Calculation settings and molecule.
 
     SimstackResult:
         result (QMResult): Final energy, structure, and convergence status.
+        hyperpolarizability (SimpleTable): Frequency-pair beta_zzz values when hyperpolarizability is requested.
     """
     node_runner = kwargs["node_runner"]
     node_runner.info("Starting turbomole2 calculation")
@@ -106,7 +119,9 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"basis={qm_input.basis_set.basis_set}, "
         f"functional={qm_input.functional.functional.value}, "
         f"gridsize={qm_input.gridsize}, "
-        f"scfconv={qm_input.scfconv}"
+        f"scfconv={qm_input.scfconv}, "
+        f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
+        f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}"
     )
 
     try:
@@ -148,6 +163,27 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 "Turbomole ground-state calculation failed. Check turbomole_exe.log."
             )
 
+        if hyperpolarizability_requested(qm_input):
+            wavelength_nm = hyperpolarizability_wavelength_nm(qm_input)
+            apply_hyperpolarizability_control(qm_input)
+            node_runner.info(
+                "Launching TURBOMOLE escf hyperpolarizability response step "
+                f"(mode={qm_input.hyperpolarizability.value}, lambda_nm={wavelength_nm:.10g})."
+            )
+            response_script = prepend_tm_env(build_hyperpolarizability_script())
+            if not node_runner.subprocess("turbomole_response", response_script):
+                raise RuntimeError(
+                    "Turbomole hyperpolarizability step failed. Check turbomole_response.log and escf.out."
+                )
+            verify_dynamic_hyperpols_output(qm_input)
+            hyperpol_table = parse_hyperpolarizability_table()
+            if hyperpol_table is not None:
+                node_runner.hyperpolarizability = hyperpol_table
+            else:
+                node_runner.warning(
+                    "escf produced hyperpols but no beta_zzz frequency pairs could be parsed."
+                )
+
         if not Path("./control").exists():
             raise RuntimeError("Turbomole run produced no 'control' file.")
         if not (
@@ -155,10 +191,11 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             or Path("./ridft.out").exists()
             or Path("./dscf.out").exists()
             or Path("./job.last").exists()
+            or Path("./hyperpols").exists()
         ):
             raise RuntimeError(
                 "Turbomole run finished but key outputs are missing "
-                "(energy/ridft.out/dscf.out/job.last)."
+                "(energy/ridft.out/dscf.out/job.last/hyperpols)."
             )
 
         node_runner.info("Parsing output files")

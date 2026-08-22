@@ -67,6 +67,12 @@ class SolventModeEnum(str, Enum):
     EXPLICIT = "explicit"
 
 
+class HyperpolarizabilityModeEnum(str, Enum):
+    NONE = "none"
+    STATIC = "static"
+    DYNAMIC = "dynamic"
+
+
 @simstack_model
 class TurbomoleBasisSet2(EmbeddedModel):
     """Turbomole basis-set payload without legacy aux-basis UI surface."""
@@ -90,8 +96,9 @@ class TurbomoleQMInput2(Model):
     """
     Clean TURBOMOLE input for turbomole2.
 
-    Field surface mirrors the historical TurbomoleQMInput (without GW), but
-    validators do not infer, sync, or rewrite user-provided values.
+    Field surface mirrors the historical TurbomoleQMInput (without GW).
+    Solvent and hyperpolarizability extra fields are hidden in the UI until
+    the matching mode is selected; stored values are not rewritten.
     """
 
     field_name: str = "TurbomoleQMInput2"
@@ -146,23 +153,22 @@ class TurbomoleQMInput2(Model):
         },
     )
     frequencies: bool = Field(False, json_schema_extra={"description": "Calculate frequencies"})
-    hyperpolarizability: bool = Field(
-        False,
+    hyperpolarizability: HyperpolarizabilityModeEnum = Field(
+        HyperpolarizabilityModeEnum.NONE,
         json_schema_extra={
-            "description": "Calculate first hyperpolarizability (β) using escf + hyperpols"
+            "enum": [e.value for e in HyperpolarizabilityModeEnum],
+            "title": "Hyperpolarizability",
+            "description": (
+                "none: skip β. static: $scfinstab hyperpol with no frequency lines. "
+                "dynamic: same keyword plus hyperpol_frequency_nm."
+            ),
         },
     )
     hyperpol_frequency_nm: float = Field(
         0.0,
         json_schema_extra={
-            "description": "Wavelength in nm for dynamic hyperpolarizability (0 = static/DC)"
-        },
-    )
-    edelt: Optional[float] = Field(
-        default=None,
-        json_schema_extra={
-            "description": "Electric-field step for hyperpolarizability numerical derivatives.",
-            "title": "edelt",
+            "description": "Optical wavelength in nm for dynamic β. Ignored for none and static.",
+            "title": "Hyperpol Frequency Nm",
         },
     )
     solvent_mode: SolventModeEnum = Field(
@@ -200,7 +206,9 @@ class TurbomoleQMInput2(Model):
     @model_validator(mode="before")
     @classmethod
     def ensure_fieldname(cls, data):
-        if isinstance(data, dict) and "field_name" not in data:
+        if not isinstance(data, dict):
+            return data
+        if "field_name" not in data:
             data["field_name"] = cls.__name__
         return data
 
@@ -214,6 +222,24 @@ class TurbomoleQMInput2(Model):
     def json_schema(cls, recursive=True):
         schema = cleaned_json_schema(cls)
         schema["title"] = cls.__name__
+        properties = schema.setdefault("properties", {})
+        properties["hyperpolarizability"] = {
+            "type": "string",
+            "enum": [e.value for e in HyperpolarizabilityModeEnum],
+            "default": HyperpolarizabilityModeEnum.NONE.value,
+            "title": "Hyperpolarizability",
+            "description": (
+                "none: skip β. static: $scfinstab hyperpol with no frequency lines. "
+                "dynamic: same keyword plus hyperpol_frequency_nm."
+            ),
+        }
+        for field_name in ("solvent_epsilon", "solvent_refind", "hyperpol_frequency_nm"):
+            field_schema = properties.get(field_name)
+            if not isinstance(field_schema, dict):
+                continue
+            if "anyOf" in field_schema:
+                field_schema["type"] = "number"
+                field_schema.pop("anyOf", None)
         return schema
 
     @classmethod
@@ -240,7 +266,6 @@ class TurbomoleQMInput2(Model):
             "frequencies",
             "hyperpolarizability",
             "hyperpol_frequency_nm",
-            "edelt",
             "id",
             "active_orbitals",
             "active_electrons",
@@ -248,4 +273,17 @@ class TurbomoleQMInput2(Model):
             "control_groups",
         ]
         ui_schema.setdefault("ui:options", {})["ui:foldable"] = True
+        ui_schema.setdefault("hyperpolarizability", {})["ui:widget"] = "select"
+        ui_schema.setdefault("solvent", {})["ui:condition"] = {
+            "solvent_mode": SolventModeEnum.IMPLICIT.value
+        }
+        ui_schema.setdefault("solvent_epsilon", {})["ui:condition"] = {
+            "solvent_mode": SolventModeEnum.EXPLICIT.value
+        }
+        ui_schema.setdefault("solvent_refind", {})["ui:condition"] = {
+            "solvent_mode": SolventModeEnum.EXPLICIT.value
+        }
+        ui_schema.setdefault("hyperpol_frequency_nm", {})["ui:condition"] = {
+            "hyperpolarizability": HyperpolarizabilityModeEnum.DYNAMIC.value
+        }
         return ui_schema

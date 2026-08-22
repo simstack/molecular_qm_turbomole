@@ -69,3 +69,17 @@ dev = [
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["molecular_qm_turbomole/tests"]
+
+# hatch-vcs reads git tags; python-semantic-release creates them from conventional commits.
+[tool.semantic_release]
+allow_zero_version = true
+major_on_zero = false
+tag_format = "v{version}"
+commit_parser = "conventional"
+
+[tool.semantic_release.branches.main]
+match = "(main|master)"
+prerelease = false
+
+[tool.semantic_release.changelog]
+mode = "update"
