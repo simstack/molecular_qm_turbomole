@@ -40,6 +40,10 @@ HYPERPOL_STEP_MODES = (
 )
 
 
+class WorkflowFailure(RuntimeError):
+    """Already recorded on the node runner / record; re-raise from the workflow node."""
+
+
 def _make_workflow_parameters() -> Parameters:
     slurm_fields = getattr(SlurmParameters, "model_fields", {})
     slurm_kwargs: dict[str, object] = {
@@ -274,7 +278,42 @@ def _child_kwargs(parent_kwargs: dict) -> dict:
 
 
 async def _run_turbomole_inline(qm_input: TurbomoleQMInput2, child_kwargs: dict) -> Any:
-    return await turbomole2(qm_input, **child_kwargs)
+    try:
+        return await turbomole2(qm_input, **child_kwargs)
+    except Exception as exc:
+        raise RuntimeError(child_exception_text(exc, node_name="turbomole2")) from exc
+
+
+def child_exception_text(exc: BaseException, *, node_name: str | None = None) -> str:
+    """Prefer a real fail() message over Simstack's generic TaskStatus.FAILED wrapper."""
+    for candidate in (exc, getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if candidate is None:
+            continue
+        message = str(getattr(candidate, "error_message", None) or candidate).strip()
+        if not message:
+            continue
+        generic = "terminated with status" in message and "failed" in message.lower()
+        if not generic:
+            if node_name and node_name not in message:
+                return f"{node_name} failed: {message}"
+            return message
+    text = str(exc).strip() or repr(exc)
+    if node_name and node_name not in text:
+        return f"{node_name} failed: {text}"
+    return text
+
+
+def _fail_workflow(
+    node_runner: NodeRunner,
+    record: Optional["HyperPolarizationRecord"],
+    code: str,
+    message: str,
+) -> None:
+    if record is not None:
+        record.success = False
+        record.error = code
+    node_runner.fail(message)
+    raise WorkflowFailure(message)
 
 
 def _iter_result_candidates(result: Any) -> list[Any]:
@@ -447,6 +486,7 @@ async def hyperpolarizibility(
     """
     node_runner: NodeRunner = kwargs["node_runner"]
     child_kwargs = _child_kwargs(kwargs)
+    hyperpolarization_record: Optional[HyperPolarizationRecord] = None
 
     try:
         if optimization_qm_input.states > 0:
@@ -483,15 +523,14 @@ async def hyperpolarizibility(
             optimization_call_result = await _run_turbomole_inline(optimization_input, child_kwargs)
             optimization_result = _extract_qm_result(optimization_call_result) or optimization_call_result
             if not (_is_completed(optimization_call_result) or _is_completed(optimization_result)):
-                hyperpolarization_record.success = False
-                hyperpolarization_record.error = "OPT"
-                return node_runner.fail(
-                    f"Optimization step did not complete successfully ({_result_debug(optimization_result)})."
+                _fail_workflow(
+                    node_runner,
+                    hyperpolarization_record,
+                    "OPT",
+                    f"Optimization step did not complete successfully ({_result_debug(optimization_result)}).",
                 )
             if getattr(optimization_result, "scf_converged", None) is False:
-                hyperpolarization_record.success = False
-                hyperpolarization_record.error = "SCF"
-                return node_runner.fail("SCF did not converge")
+                _fail_workflow(node_runner, hyperpolarization_record, "SCF", "SCF did not converge")
 
             frequencies_ok, failed_frequencies = _check_vibrational_frequencies(
                 optimization_call_result,
@@ -503,9 +542,12 @@ async def hyperpolarizibility(
                     hyperpolarizability_settings.frequency_tolerance,
                 )
             if "missing" in failed_frequencies:
-                hyperpolarization_record.success = False
-                hyperpolarization_record.error = "NOFREQ"
-                return node_runner.fail("No vibrational frequencies found in optimization result.")
+                _fail_workflow(
+                    node_runner,
+                    hyperpolarization_record,
+                    "NOFREQ",
+                    "No vibrational frequencies found in optimization result.",
+                )
             if frequencies_ok:
                 node_runner.info(f"Vibrational frequencies within threshold for grid {grid_size}.")
                 break
@@ -515,18 +557,22 @@ async def hyperpolarizibility(
                 )
 
         if not frequencies_ok:
-            hyperpolarization_record.success = False
             error_details = ", ".join(f"{index}: {value}" for index, value in failed_frequencies.items())
-            hyperpolarization_record.error = f"BADFREQ: {error_details}"
-            return node_runner.fail(f"Vibrational frequencies exceed threshold: {error_details}")
+            _fail_workflow(
+                node_runner,
+                hyperpolarization_record,
+                f"BADFREQ: {error_details}",
+                f"Vibrational frequencies exceed threshold: {error_details}",
+            )
 
         optimized_structure = _extract_structure_from_result(optimization_call_result, node_runner)
         if optimized_structure is None:
-            hyperpolarization_record.success = False
-            hyperpolarization_record.error = "NOSTRUCT"
-            return node_runner.fail(
+            _fail_workflow(
+                node_runner,
+                hyperpolarization_record,
+                "NOSTRUCT",
                 "Optimization step produced no usable structure for the hyperpolarizability step "
-                f"({_result_debug(optimization_result)})."
+                f"({_result_debug(optimization_result)}).",
             )
         optimized_structure = await _ensure_db_molecule(optimized_structure)
         write_final_geometry_xyz(optimized_structure, WORKFLOW_FINAL_STRUCTURE_XYZ)
@@ -550,19 +596,31 @@ async def hyperpolarizibility(
             node_runner.hyperpolarizability = hyperpol_table
 
         if not (_is_completed(hyperpol_call_result) or _is_completed(hyperpol_result)):
-            hyperpolarization_record.success = False
-            hyperpolarization_record.error = "HYPERPOL"
-            return node_runner.fail(
-                f"Hyperpolarizability step did not complete successfully ({_result_debug(hyperpol_result)})."
+            _fail_workflow(
+                node_runner,
+                hyperpolarization_record,
+                "HYPERPOL",
+                f"Hyperpolarizability step did not complete successfully ({_result_debug(hyperpol_result)}).",
             )
         if not _has_hyperpol_output(hyperpol_call_result) and not _has_hyperpol_output(hyperpol_result):
-            hyperpolarization_record.success = False
-            hyperpolarization_record.error = "NOHYPERPOL"
-            return node_runner.fail("Hyperpolarizability step completed but no beta output was detected.")
+            _fail_workflow(
+                node_runner,
+                hyperpolarization_record,
+                "NOHYPERPOL",
+                "Hyperpolarizability step completed but no beta output was detected.",
+            )
 
         hyperpolarization_record.success = True
         node_runner.result = hyperpol_result
         node_runner.info("Workflow completed successfully.")
         return node_runner.succeed()
+    except WorkflowFailure:
+        raise
     except Exception as exc:
-        return node_runner.fail(f"Turbomole workflow failed: {exc}")
+        message = f"Turbomole workflow failed: {child_exception_text(exc)}"
+        if hyperpolarization_record is not None:
+            hyperpolarization_record.success = False
+            if not hyperpolarization_record.error:
+                hyperpolarization_record.error = message
+        node_runner.fail(message)
+        raise RuntimeError(message) from exc

@@ -5,13 +5,16 @@ import pytest
 from hyperpolarizibility.workflows import (
     HyperPolarizationRecord,
     HyperpolarizabilitySettings,
+    WorkflowFailure,
     _apply_hyperpolarizability_settings,
     _build_hyperpol_input,
     _build_optimization_input,
     _check_vibrational_frequencies,
     _disable_hyperpolarizability,
+    _fail_workflow,
     _optimization_grid_sizes,
     beta_zzz_by_pair,
+    child_exception_text,
 )
 from molecular_qm_models.density_functional import FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
@@ -220,6 +223,33 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     )
     default_doc = defaulted.model_dump_doc()
     assert default_doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.NONE.value
+
+
+def test_child_exception_text_prefers_real_message_over_generic_failed_status():
+    generic = RuntimeError(
+        "Task task_id: 6a8995311bfa44458b455fe9 node: turbomole2 terminated with status TaskStatus.FAILED"
+    )
+    generic.__cause__ = RuntimeError("Geometry optimization failed: jobex did not end properly")
+    text = child_exception_text(generic, node_name="turbomole2")
+    assert "jobex did not end properly" in text
+    assert "terminated with status" not in text
+
+
+def test_fail_workflow_records_error_and_raises():
+    record = HyperPolarizationRecord(
+        molecule=_water(),
+        started_at=datetime.now(timezone.utc),
+    )
+    runner = type(
+        "Runner",
+        (),
+        {"fail": lambda self, msg: setattr(self, "error_message", msg) or self},
+    )()
+    with pytest.raises(WorkflowFailure, match="SCF did not converge"):
+        _fail_workflow(runner, record, "SCF", "SCF did not converge")
+    assert record.success is False
+    assert record.error == "SCF"
+    assert runner.error_message == "SCF did not converge"
 
 
 def test_beta_zzz_by_pair_reads_simple_table():

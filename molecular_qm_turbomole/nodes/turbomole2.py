@@ -45,6 +45,29 @@ from simstack.models.parameters import SlurmParameters
 
 logger = logging.getLogger("Turbomole2Node")
 
+_OUTPUT_TAIL = 2000
+
+
+def _runner_output_tail(node_runner, limit: int = _OUTPUT_TAIL) -> str:
+    for attr in ("last_stderr", "last_stdout"):
+        text = str(getattr(node_runner, attr, "") or "").strip()
+        if text:
+            return text[-limit:]
+    return ""
+
+
+def _with_runner_output(node_runner, message: str) -> str:
+    tail = _runner_output_tail(node_runner)
+    if tail and tail not in message:
+        return f"{message}\n{tail}"
+    return message
+
+
+def _fail(node_runner, message: str) -> None:
+    """Mark the node failed and raise so Simstack stores the message on the registry."""
+    node_runner.fail(message)
+    raise RuntimeError(message)
+
 slurm_parameters = SlurmParameters(
     nodes=1,
     tasks=1,
@@ -149,16 +172,26 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                 converged = True
                 break
             if status == "failed":
-                raise RuntimeError(f"Geometry optimization failed: {error}")
+                raise RuntimeError(
+                    _with_runner_output(
+                        node_runner, f"Geometry optimization failed: {error}"
+                    )
+                )
             if not ok and status != "continue":
                 raise RuntimeError(
-                    f"Turbomole ground-state calculation failed. Check {subprocess_name}.log."
+                    _with_runner_output(
+                        node_runner,
+                        f"Turbomole ground-state calculation failed. Check {subprocess_name}.log.",
+                    )
                 )
 
             new_energy_step = tracker.latest_step
             if new_energy_step <= last_energy_step:
                 raise RuntimeError(
-                    "jobex made no progress; energy file did not gain a new cycle."
+                    _with_runner_output(
+                        node_runner,
+                        "jobex made no progress; energy file did not gain a new cycle.",
+                    )
                 )
             last_energy_step = new_energy_step
             last_cycles += chunk
@@ -181,7 +214,10 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
             freq_script = prepend_tm_env(build_frequency_script())
             if not node_runner.subprocess("turbomole_aoforce", freq_script):
                 raise RuntimeError(
-                    "Turbomole frequency calculation failed. Check turbomole_aoforce.log."
+                    _with_runner_output(
+                        node_runner,
+                        "Turbomole frequency calculation failed. Check turbomole_aoforce.log.",
+                    )
                 )
         return
 
@@ -195,7 +231,10 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
     )
     if not node_runner.subprocess("turbomole_exe", run_script):
         raise RuntimeError(
-            "Turbomole ground-state calculation failed. Check turbomole_exe.log."
+            _with_runner_output(
+                node_runner,
+                "Turbomole ground-state calculation failed. Check turbomole_exe.log.",
+            )
         )
 
 
@@ -232,13 +271,13 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     try:
         _validate_request(qm_input)
     except Exception as exc:
-        return node_runner.fail(f"Invalid TURBOMOLE input settings: {exc}")
+        _fail(node_runner, f"Invalid TURBOMOLE input settings: {exc}")
 
     try:
         TurbomoleInputWriter(qm_input).write_files()
         node_runner.info("Input files generated")
     except Exception as exc:
-        return node_runner.fail(f"Error creating Turbomole input files: {exc}")
+        _fail(node_runner, f"Error creating Turbomole input files: {exc}")
 
     try:
         define_script = prepend_tm_env(build_define_script())
@@ -303,7 +342,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         tout.parse()
 
         if tout.final_energy is None:
-            return node_runner.fail("Failed to parse energy from Turbomole output")
+            _fail(node_runner, "Failed to parse energy from Turbomole output")
 
         molecule_list = MoleculeList()
         if qm_input.optimization and tout.final_structure:
@@ -336,5 +375,4 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         )
         return node_runner.succeed()
     except Exception as exc:
-        node_runner.error(str(exc))
-        return node_runner.fail(f"Turbomole calculation failed: {exc}")
+        _fail(node_runner, _with_runner_output(node_runner, f"Turbomole calculation failed: {exc}"))

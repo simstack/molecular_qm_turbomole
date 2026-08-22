@@ -13,6 +13,7 @@ from hyperpolarizibility.workflows import (
     _extract_hyperpolarizability_table,
     _is_completed,
     beta_zzz_by_pair,
+    child_exception_text,
     hyperpolarizibility,
     workflow_parameters,
 )
@@ -244,16 +245,15 @@ async def hyperpol_runner(
         for (functional_enum, basis_set), result in zip(combos, results):
             functional = _functional_for_enum(functional_enum)
             if isinstance(result, Exception):
-                node_runner.info(
-                    f"{functional_enum.value} / {basis_set} failed with exception: {result}"
-                )
+                error = child_exception_text(result, node_name="hyperpolarizibility")
+                node_runner.error(f"{functional_enum.value} / {basis_set} failed: {error}")
                 row = _hyperpol_dataset_row(
                     basis_set=basis_set,
                     functional=functional,
                     frequency_nm=frequency_nm,
                     hyperpol_table=None,
                 )
-                row["error"] = StringData(field_name="error", value=str(result))
+                row["error"] = StringData(field_name="error", value=error)
             else:
                 table = _child_hyperpol_table(result)
                 row = _hyperpol_dataset_row(
@@ -263,8 +263,12 @@ async def hyperpol_runner(
                     hyperpol_table=table,
                 )
                 if not _is_completed(result):
-                    error = getattr(result, "error_message", None) or "hyperpolarizibility did not complete"
-                    node_runner.info(f"{functional_enum.value} / {basis_set} did not complete: {error}")
+                    error = (
+                        getattr(result, "error_message", None)
+                        or getattr(getattr(result, "record", None), "error", None)
+                        or "hyperpolarizibility did not complete"
+                    )
+                    node_runner.error(f"{functional_enum.value} / {basis_set} did not complete: {error}")
                     row["error"] = StringData(field_name="error", value=str(error))
                 else:
                     node_runner.info(f"{functional_enum.value} / {basis_set} completed.")
@@ -274,5 +278,7 @@ async def hyperpol_runner(
         node_runner.dataset = dataset
         return node_runner.succeed()
     except Exception as exc:
-        node_runner.error(str(exc))
-        return node_runner.fail(str(exc))
+        message = child_exception_text(exc)
+        node_runner.error(message)
+        node_runner.fail(message)
+        raise RuntimeError(message) from exc

@@ -12,7 +12,7 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
     persist_opt_charts,
 )
 from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse_gradient_history
-from molecular_qm_turbomole.nodes.turbomole2 import _run_optimization_chunks
+from molecular_qm_turbomole.nodes.turbomole2 import _run_optimization_chunks, _with_runner_output
 
 
 def _write_energy(directory, n_cycles: int) -> None:
@@ -359,3 +359,44 @@ async def test_run_optimization_chunks_honors_max_opt_cycles(tmp_path, monkeypat
         await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
     assert len(seen_limits) == 1
     assert "-c 5" in seen_limits[0]
+
+
+def test_with_runner_output_appends_stderr_once():
+    runner = SimpleNamespace(last_stderr="[TM ERROR] jobex failed.", last_stdout="")
+    message = _with_runner_output(runner, "Geometry optimization failed: jobex did not end properly")
+    assert message.startswith("Geometry optimization failed: jobex did not end properly")
+    assert "[TM ERROR] jobex failed." in message
+    assert message.count("[TM ERROR] jobex failed.") == 1
+
+
+@pytest.mark.asyncio
+async def test_run_optimization_chunks_includes_subprocess_output_on_running_marker(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+
+    def fake_subprocess(name, command, cwd=""):
+        _write_energy(tmp_path, 1)
+        _write_gradient(tmp_path, 1)
+        (tmp_path / "GEO_OPT_RUNNING").write_text("running\n", encoding="utf-8")
+        return False
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    node_runner.last_stdout = "[TM ERROR] jobex failed.\n  dscf ended abnormally"
+    node_runner.last_stderr = ""
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+    )
+    with pytest.raises(RuntimeError, match="jobex did not end properly") as exc_info:
+        await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    assert "dscf ended abnormally" in str(exc_info.value)
