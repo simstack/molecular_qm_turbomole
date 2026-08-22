@@ -1,12 +1,14 @@
 import pytest
 
 from hyperpolarizibility.hyperpol_runner import (
+    HYPERPOL_BETA_PAIRS,
     HyperpolRunnerModel,
     _hyperpol_dataset_row,
     _molecule_section_name,
     _qm_input_for_combo,
     _settings_from_qm_input,
     _sweep_combos,
+    dataset_row_from_record,
 )
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
@@ -142,6 +144,26 @@ def test_molecule_section_name_retries_util_missing_error():
     assert not str(molecule.formula).lower().startswith("error")
 
 
+def test_fill_molecule_labels_does_not_persist_util_missing():
+    from molecular_qm_turbomole.lib.molecule_labels import fill_molecule_labels, molecule_section_name
+
+    class StubMolecule:
+        smiles = None
+        formula = "Error: molecular_qm_util missing"
+
+        def make_smiles(self):
+            return "Error: molecular_qm_util missing"
+
+        def make_formula(self):
+            return "Error: molecular_qm_util missing"
+
+    molecule = StubMolecule()
+    fill_molecule_labels(molecule)
+    assert molecule.smiles is None
+    assert molecule.formula == "Error: molecular_qm_util missing"
+    assert molecule_section_name(molecule) == "molecule"
+
+
 def test_hyperpol_dataset_row_has_basis_functional_frequency_and_beta_entries():
     table = SimpleTable(name="Hyperpolarizability")
     table.add_column("pair", "int")
@@ -163,3 +185,70 @@ def test_hyperpol_dataset_row_has_basis_functional_frequency_and_beta_entries():
     assert row["hyperpolarizability"] is table
     assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.12)
     assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.34)
+    assert row["beta_pair_3_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert isinstance(row["error"], StringData)
+    assert row["error"].value == ""
+    for pair in HYPERPOL_BETA_PAIRS:
+        field = f"beta_pair_{pair}_zzz_1e30_esu"
+        assert isinstance(row[field], FloatData)
+
+
+def test_hyperpol_dataset_row_always_includes_error_and_beta_pairs():
+    row = _hyperpol_dataset_row(
+        basis_set="def2-SVP",
+        functional=TurbomoleFunctionalEnum.PBE,
+        frequency_nm=0.0,
+        hyperpol_table=None,
+        error="SCF did not converge",
+    )
+    assert row["error"].value == "SCF did not converge"
+    assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert row["beta_pair_3_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert row["frequency"].value == pytest.approx(0.0)
+
+
+def test_dataset_row_from_record_uses_wavelength_and_string_labels():
+    from datetime import datetime, timezone
+
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+
+    table = SimpleTable(name="Hyperpolarizability")
+    table.add_column("pair", "int")
+    table.add_column("beta_zzz_1e30_esu", "float")
+    table.add_row({"pair": 1, "beta_zzz_1e30_esu": 0.12})
+    record = HyperPolarizationRecord(
+        molecule=_water(),
+        functional=TurbomoleFunctionalEnum.CAM_B3LYP,
+        basis_set=TurbomoleBasisSet2(basis_set="aug-cc-pVDZ"),
+        started_at=datetime.now(timezone.utc),
+        wavelength=1064.0,
+        hyperpol=table,
+        error="NOFREQ",
+    )
+    row = dataset_row_from_record(record)
+    assert isinstance(row["functional"], StringData)
+    assert row["functional"].value == "cam-b3lyp"
+    assert isinstance(row["basis_set"], StringData)
+    assert row["basis_set"].value == "aug-cc-pVDZ"
+    assert row["frequency"].value == pytest.approx(1064.0)
+    assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.12)
+    assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert row["error"].value == "NOFREQ"
+
+
+def test_dataset_row_from_record_static_wavelength_is_zero():
+    from datetime import datetime, timezone
+
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+
+    record = HyperPolarizationRecord(
+        molecule=_water(),
+        functional=TurbomoleFunctionalEnum.PBE,
+        started_at=datetime.now(timezone.utc),
+        wavelength=None,
+    )
+    row = dataset_row_from_record(record)
+    assert row["frequency"].value == pytest.approx(0.0)
+    assert row["error"].value == ""
+    assert row["basis_set"].value == "def2-SVP"

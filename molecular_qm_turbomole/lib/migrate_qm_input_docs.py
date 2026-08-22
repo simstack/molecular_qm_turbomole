@@ -15,7 +15,6 @@ from bson import ObjectId
 
 from molecular_qm_turbomole.lib.molecule_labels import fill_molecule_labels, molecule_section_name
 from molecular_qm_turbomole.models.turbomole_functional import (
-    TurbomoleFunctionalEnum,
     as_turbomole_functional_doc,
 )
 from molecular_qm_turbomole.models.turbomole_input import (
@@ -308,54 +307,101 @@ def record_row_name(record_id: Any) -> str:
     return str(record_id)
 
 
-async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False) -> int:
-    """Rebuild a DataSet from HyperPolarizationRecord docs so they appear in the Dataset UI."""
-    from hyperpolarizibility.hyperpol_runner import _hyperpol_dataset_row
-    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
-    from simstack.models import StringData
+def is_hyperpol_runner_dataset(dataset: Any) -> bool:
+    metadata = getattr(dataset, "metadata", None)
+    if metadata is None:
+        return False
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+
+    return getattr(metadata, "field_name", None) == HYPERPOL_DATASET_TYPE
+
+
+def is_hyperpol_runner_template(template: Any) -> bool:
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+
+    return getattr(template, "dataset_type", None) == HYPERPOL_DATASET_TYPE
+
+
+async def delete_hyperpol_runner_datasets(db, dry_run: bool = False) -> Tuple[int, int]:
+    """Drop stored hyperpol_runner DataSets and their shared metadata template."""
+    from simstack.models.dataset import DataSet
+    from simstack.models.dataset_metadata import DataSetMetadataTemplate
+
+    deleted_datasets = 0
+    for dataset in await db.find(DataSet):
+        if not is_hyperpol_runner_dataset(dataset):
+            continue
+        deleted_datasets += 1
+        if not dry_run:
+            await db.delete(dataset)
+
+    deleted_templates = 0
+    for template in await db.find(DataSetMetadataTemplate):
+        if not is_hyperpol_runner_template(template):
+            continue
+        deleted_templates += 1
+        if not dry_run:
+            await db.delete(template)
+    return deleted_datasets, deleted_templates
+
+
+def build_hyperpol_dataset_from_records(records: Sequence[Any]):
+    """Build a DataSet of the hyperpol_runner row shape without saving it."""
+    from hyperpolarizibility.hyperpol_runner import (
+        HYPERPOL_DATASET_TYPE,
+        HYPERPOL_RECORDS_DATASET_NAME,
+        dataset_row_from_record,
+    )
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadata
+
+    dataset = DataSet(
+        field_name=HYPERPOL_RECORDS_DATASET_NAME,
+        metadata=DataSetMetadata(
+            field_name=HYPERPOL_DATASET_TYPE,
+            data={"formula": "records"},
+        ),
+    )
+    added = 0
+    for record in records:
+        molecule = fill_molecule_labels(getattr(record, "molecule", None))
+        section_name = molecule_section_name(molecule)
+        section = dataset[section_name]
+        section.add_row(dataset_row_from_record(record), name=record_row_name(getattr(record, "id", None)))
+        added += 1
+    return dataset, added
+
+
+async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False) -> int:
+    """Delete stale hyperpol_runner DataSets and rebuild one from HyperPolarizationRecord docs."""
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_RECORDS_DATASET_NAME
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+
+    deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db, dry_run=dry_run)
+    logger.info(
+        "%s %s hyperpol_runner DataSet(s) and %s metadata template(s)",
+        "Would delete" if dry_run else "Deleted",
+        deleted_datasets,
+        deleted_templates,
+    )
 
     records = await db.find(HyperPolarizationRecord)
     logger.info("Found %s HyperPolarizationRecord document(s) for Dataset migration", len(records))
     if not records:
         return 0
 
-    dataset = DataSet(
-        field_name="hyperpol_runner.migrated",
-        metadata=DataSetMetadata(
-            field_name="hyperpol_runner",
-            data={"formula": "migrated"},
-        ),
-    )
-    existing = await db.find_one(DataSet, DataSet.field_name == "hyperpol_runner.migrated")
-    if existing is not None:
-        await db.delete(existing)
-
-    added = 0
-    for record in records:
-        molecule = fill_molecule_labels(record.molecule)
-        if molecule is not None:
+    if not dry_run:
+        for record in records:
+            molecule = fill_molecule_labels(getattr(record, "molecule", None))
+            if molecule is None:
+                continue
             molecule = await db.save(molecule)
             record.molecule = molecule
-        section_name = molecule_section_name(molecule) if molecule is not None else "molecule"
-        section = dataset[section_name]
-        basis = getattr(record.basis_set, "basis_set", None) or TURBOMOLE_DEFAULT_BASIS_SET
-        functional = TurbomoleFunctionalEnum.coerce(getattr(record, "functional", None))
-        row = _hyperpol_dataset_row(
-            basis_set=str(basis),
-            functional=functional,
-            frequency_nm=0.0,
-            hyperpol_table=record.hyperpol,
-        )
-        if record.error:
-            row["error"] = StringData(field_name="error", value=str(record.error))
-        section.add_row(row, name=record_row_name(record.id))
-        added += 1
 
+    dataset, added = build_hyperpol_dataset_from_records(records)
     if dry_run:
-        logger.info("Would write %s Dataset row(s) to hyperpol_runner.migrated", added)
+        logger.info("Would write %s Dataset row(s) to %s", added, HYPERPOL_RECORDS_DATASET_NAME)
         return added
     await dataset.save(db)
-    logger.info("Saved DataSet hyperpol_runner.migrated with %s row(s)", added)
+    logger.info("Saved DataSet %s with %s row(s)", HYPERPOL_RECORDS_DATASET_NAME, added)
     return added

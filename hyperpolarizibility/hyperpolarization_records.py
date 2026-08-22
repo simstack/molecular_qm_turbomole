@@ -44,6 +44,19 @@ def _display_label(value) -> str:
     return text
 
 
+def _wavelength_label(record: HyperPolarizationRecord) -> str:
+    value = getattr(record, "wavelength", None)
+    if value is None:
+        return "N/A"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "N/A"
+    if number <= 0.0:
+        return "N/A"
+    return str(number)
+
+
 def _label_missing(value) -> bool:
     return _display_label(value) == "N/A"
 
@@ -93,6 +106,7 @@ async def hyperpolarization_records_to_table(
     simple_table.add_column("Started At", "string")
     simple_table.add_column("Molecule (SMILES)", "string")
     simple_table.add_column("Formula", "string")
+    simple_table.add_column("Wavelength", "string")
     simple_table.add_column("Functional", "string")
     simple_table.add_column("Basis Set", "string")
     simple_table.add_column("beta_pair_1_zzz_1e30_esu", "float")
@@ -120,6 +134,7 @@ async def hyperpolarization_records_to_table(
             "Started At": record.started_at.isoformat() if record.started_at else None,
             "Molecule (SMILES)": smiles,
             "Formula": formula,
+            "Wavelength": _wavelength_label(record),
             "Functional": _functional_label(record),
             "Basis Set": _basis_label(record),
             "beta_pair_1_zzz_1e30_esu": betas.get(1),
@@ -132,6 +147,7 @@ async def hyperpolarization_records_to_table(
             f"Record: started_at={row['Started At']}, "
             f"molecule_smiles={row['Molecule (SMILES)']}, "
             f"formula={row['Formula']}, "
+            f"wavelength={row['Wavelength']}, "
             f"functional={row['Functional']}, "
             f"basis_set={row['Basis Set']}, "
             f"beta_pair_1_zzz_1e30_esu={row['beta_pair_1_zzz_1e30_esu']}, "

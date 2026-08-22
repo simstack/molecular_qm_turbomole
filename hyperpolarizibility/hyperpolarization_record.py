@@ -26,6 +26,13 @@ class HyperPolarizationRecord(Model):
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
     started_at: datetime
+    wavelength: Optional[float] = Field(
+        None,
+        json_schema_extra={
+            "title": "Wavelength",
+            "description": "Optical wavelength in nm for dynamic beta. Empty for static.",
+        },
+    )
     hyperpol: Optional[SimpleTable] = None
     success: bool = False
     error: Optional[str] = None

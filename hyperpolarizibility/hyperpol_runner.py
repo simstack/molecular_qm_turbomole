@@ -27,6 +27,7 @@ from molecular_qm_turbomole.models.turbomole_functional import (
 )
 from molecular_qm_turbomole.models.turbomole_input import (
     TURBOMOLE_BASIS_SET_VALUES,
+    TURBOMOLE_DEFAULT_BASIS_SET,
     HyperpolarizabilityModeEnum,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
@@ -41,6 +42,10 @@ from simstack.models.dataset_metadata import DataSetMetadata
 from simstack.models.simple_table import SimpleTable
 from simstack.util.cleaned_json_schema import cleaned_json_schema
 from simstack.util.generate_ui_schema import generate_ui_schema
+
+HYPERPOL_DATASET_TYPE = "hyperpol_runner"
+HYPERPOL_RECORDS_DATASET_NAME = "hyperpol_runner.records"
+HYPERPOL_BETA_PAIRS = (1, 2, 3)
 
 
 @simstack_model
@@ -129,25 +134,52 @@ def _empty_hyperpol_table() -> SimpleTable:
     return table
 
 
+def _beta_field_name(pair: int) -> str:
+    return f"beta_pair_{pair}_zzz_1e30_esu"
+
+
 def _hyperpol_dataset_row(
     *,
     basis_set: str,
     functional: TurbomoleFunctionalEnum,
     frequency_nm: float,
     hyperpol_table: Optional[SimpleTable],
+    error: Optional[str] = None,
 ) -> Dict[str, Model]:
     table = hyperpol_table if hyperpol_table is not None else _empty_hyperpol_table()
     keyword = TurbomoleFunctionalEnum.coerce(functional).value
+    betas = beta_zzz_by_pair(table)
     row: Dict[str, Model] = {
-        "basis_set": StringData(field_name="basis_set", value=basis_set),
+        "basis_set": StringData(field_name="basis_set", value=str(basis_set)),
         "functional": StringData(field_name="functional", value=keyword),
-        "frequency": FloatData(field_name="frequency", value=float(frequency_nm)),
+        "frequency": FloatData(field_name="frequency", value=float(frequency_nm or 0.0)),
         "hyperpolarizability": table,
     }
-    for pair, value in sorted(beta_zzz_by_pair(table).items()):
-        field = f"beta_pair_{pair}_zzz_1e30_esu"
-        row[field] = FloatData(field_name=field, value=value)
+    for pair in HYPERPOL_BETA_PAIRS:
+        field = _beta_field_name(pair)
+        row[field] = FloatData(field_name=field, value=float(betas.get(pair) or 0.0))
+    row["error"] = StringData(field_name="error", value=str(error or ""))
     return row
+
+
+def _record_frequency_nm(record: Any) -> float:
+    wavelength = getattr(record, "wavelength", None)
+    try:
+        frequency_nm = float(wavelength) if wavelength is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+    return frequency_nm if frequency_nm > 0.0 else 0.0
+
+
+def dataset_row_from_record(record: Any) -> Dict[str, Model]:
+    basis = getattr(getattr(record, "basis_set", None), "basis_set", None) or TURBOMOLE_DEFAULT_BASIS_SET
+    return _hyperpol_dataset_row(
+        basis_set=str(basis),
+        functional=TurbomoleFunctionalEnum.coerce(getattr(record, "functional", None)),
+        frequency_nm=_record_frequency_nm(record),
+        hyperpol_table=getattr(record, "hyperpol", None),
+        error=getattr(record, "error", None),
+    )
 
 
 def _child_hyperpol_table(result: Any) -> Optional[SimpleTable]:
@@ -203,9 +235,9 @@ async def hyperpol_runner(
         frequency_nm = hyperpolarizability_wavelength_nm(qm_input)
         section_name = _molecule_section_name(molecule)
         dataset = DataSet(
-            field_name=f"hyperpol_runner.{section_name}",
+            field_name=f"{HYPERPOL_DATASET_TYPE}.{section_name}",
             metadata=DataSetMetadata(
-                field_name="hyperpol_runner",
+                field_name=HYPERPOL_DATASET_TYPE,
                 data={"formula": section_name},
             ),
         )
@@ -235,24 +267,13 @@ async def hyperpol_runner(
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for (functional_enum, basis_set), result in zip(combos, results):
+            error = None
+            table = None
             if isinstance(result, Exception):
                 error = child_exception_text(result, node_name="hyperpolarizibility")
                 node_runner.error(f"{functional_enum.value} / {basis_set} failed: {error}")
-                row = _hyperpol_dataset_row(
-                    basis_set=basis_set,
-                    functional=functional_enum,
-                    frequency_nm=frequency_nm,
-                    hyperpol_table=None,
-                )
-                row["error"] = StringData(field_name="error", value=error)
             else:
                 table = _child_hyperpol_table(result)
-                row = _hyperpol_dataset_row(
-                    basis_set=basis_set,
-                    functional=functional_enum,
-                    frequency_nm=frequency_nm,
-                    hyperpol_table=table,
-                )
                 if not _is_completed(result):
                     error = (
                         getattr(result, "error_message", None)
@@ -260,9 +281,15 @@ async def hyperpol_runner(
                         or "hyperpolarizibility did not complete"
                     )
                     node_runner.error(f"{functional_enum.value} / {basis_set} did not complete: {error}")
-                    row["error"] = StringData(field_name="error", value=str(error))
                 else:
                     node_runner.info(f"{functional_enum.value} / {basis_set} completed.")
+            row = _hyperpol_dataset_row(
+                basis_set=basis_set,
+                functional=functional_enum,
+                frequency_nm=frequency_nm,
+                hyperpol_table=table,
+                error=str(error) if error else None,
+            )
             section.add_row(row, name=f"{functional_enum.value}_{basis_set}")
 
         await dataset.save(context.db)

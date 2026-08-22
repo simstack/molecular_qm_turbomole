@@ -1,9 +1,15 @@
 from bson import ObjectId
+import pytest
 
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.migrate_qm_input_docs import (
     as_basis_set_model_doc,
     as_dispersion_model_doc,
+    build_hyperpol_dataset_from_records,
+    delete_hyperpol_runner_datasets,
+    is_hyperpol_runner_dataset,
+    is_hyperpol_runner_template,
+    record_row_name,
     upgrade_hyperpolarization_record_doc,
     upgrade_stored_document,
     upgrade_turbomole_qm_input_doc,
@@ -248,3 +254,162 @@ def test_upgrade_stored_document_dispatches_by_field_name():
     other, other_changed = upgrade_stored_document({"_id": ObjectId(), "field_name": "Molecule"})
     assert other is None
     assert not other_changed
+
+
+def test_is_hyperpol_runner_dataset_and_template():
+    from types import SimpleNamespace
+
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+
+    assert is_hyperpol_runner_dataset(
+        SimpleNamespace(metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE))
+    )
+    assert not is_hyperpol_runner_dataset(SimpleNamespace(metadata=SimpleNamespace(field_name="other")))
+    assert not is_hyperpol_runner_dataset(SimpleNamespace(metadata=None))
+    assert is_hyperpol_runner_template(SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE))
+    assert not is_hyperpol_runner_template(SimpleNamespace(dataset_type="other"))
+
+
+class _FakeDb:
+    def __init__(self, *, datasets=None, templates=None, records=None):
+        self.datasets = list(datasets or [])
+        self.templates = list(templates or [])
+        self.records = list(records or [])
+        self.deleted = []
+        self.saved = []
+
+    async def find(self, model, *args):
+        from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+        from simstack.models.dataset import DataSet
+        from simstack.models.dataset_metadata import DataSetMetadataTemplate
+
+        if model is DataSet:
+            return list(self.datasets)
+        if model is DataSetMetadataTemplate:
+            return list(self.templates)
+        if model is HyperPolarizationRecord:
+            return list(self.records)
+        return []
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
+        if obj in self.datasets:
+            self.datasets.remove(obj)
+        if obj in self.templates:
+            self.templates.remove(obj)
+
+    async def save(self, obj):
+        self.saved.append(obj)
+        return obj
+
+
+@pytest.mark.asyncio
+async def test_delete_hyperpol_runner_datasets_drops_matching_docs_and_template():
+    from types import SimpleNamespace
+
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+
+    keep = SimpleNamespace(metadata=SimpleNamespace(field_name="other"))
+    drop_ds = SimpleNamespace(metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE))
+    drop_template = SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE)
+    keep_template = SimpleNamespace(dataset_type="other")
+    db = _FakeDb(
+        datasets=[keep, drop_ds],
+        templates=[drop_template, keep_template],
+    )
+    deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db)
+    assert deleted_datasets == 1
+    assert deleted_templates == 1
+    assert drop_ds in db.deleted
+    assert drop_template in db.deleted
+    assert keep not in db.deleted
+    assert keep_template not in db.deleted
+    assert db.datasets == [keep]
+    assert db.templates == [keep_template]
+
+
+@pytest.mark.asyncio
+async def test_delete_hyperpol_runner_datasets_dry_run_does_not_write():
+    from types import SimpleNamespace
+
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+
+    drop_ds = SimpleNamespace(metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE))
+    drop_template = SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE)
+    db = _FakeDb(datasets=[drop_ds], templates=[drop_template])
+    deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db, dry_run=True)
+    assert deleted_datasets == 1
+    assert deleted_templates == 1
+    assert db.deleted == []
+    assert db.datasets == [drop_ds]
+
+
+def test_build_hyperpol_dataset_from_records_uses_formula_section_and_wavelength():
+    from datetime import datetime, timezone
+
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE, HYPERPOL_RECORDS_DATASET_NAME
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+    from molecular_qm_models.molecule import Atom, Molecule
+    from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
+    from molecular_qm_turbomole.models.turbomole_input import TurbomoleBasisSet2
+    from simstack.models import FloatData, StringData
+    from simstack.models.simple_table import SimpleTable
+
+    molecule = Molecule()
+    molecule.add_atom(Atom.from_coords("O", [0.0, 0.0, 0.1173]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, 0.7572, -0.4692]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, -0.7572, -0.4692]))
+    molecule.formula = "H2O"
+
+    table = SimpleTable(name="Hyperpolarizability")
+    table.add_column("pair", "int")
+    table.add_column("beta_zzz_1e30_esu", "float")
+    table.add_row({"pair": 1, "beta_zzz_1e30_esu": 0.5})
+
+    record = HyperPolarizationRecord(
+        molecule=molecule,
+        functional=TurbomoleFunctionalEnum.CAM_B3LYP,
+        basis_set=TurbomoleBasisSet2(basis_set="def2-TZVP"),
+        started_at=datetime.now(timezone.utc),
+        wavelength=800.0,
+        hyperpol=table,
+        error=None,
+    )
+
+    dataset, added = build_hyperpol_dataset_from_records([record])
+    assert added == 1
+    assert dataset.field_name == HYPERPOL_RECORDS_DATASET_NAME
+    assert dataset.metadata.field_name == HYPERPOL_DATASET_TYPE
+    assert dataset.metadata.data["formula"] == "records"
+    assert "H2O" in dataset.sections
+    row = dataset["H2O"][record_row_name(record.id)]
+    assert isinstance(row["functional"], StringData)
+    assert row["functional"].value == "cam-b3lyp"
+    assert row["basis_set"].value == "def2-TZVP"
+    assert isinstance(row["frequency"], FloatData)
+    assert row["frequency"].value == pytest.approx(800.0)
+    assert row["beta_pair_1_zzz_1e30_esu"].value == pytest.approx(0.5)
+    assert row["beta_pair_2_zzz_1e30_esu"].value == pytest.approx(0.0)
+    assert row["error"].value == ""
+
+
+def test_build_hyperpol_dataset_from_records_skips_util_missing_section_name():
+    from datetime import datetime, timezone
+
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+    from molecular_qm_models.molecule import Atom, Molecule
+    from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
+
+    molecule = Molecule()
+    molecule.add_atom(Atom.from_coords("O", [0.0, 0.0, 0.1173]))
+    molecule.formula = "Error: molecular_qm_util missing"
+    molecule.smiles = "Error: molecular_qm_util missing"
+    record = HyperPolarizationRecord(
+        molecule=molecule,
+        functional=TurbomoleFunctionalEnum.PBE,
+        started_at=datetime.now(timezone.utc),
+    )
+    dataset, added = build_hyperpol_dataset_from_records([record])
+    assert added == 1
+    assert "Error: molecular_qm_util missing" not in dataset.sections
+    assert any(not name.lower().startswith("error") for name in dataset.sections)

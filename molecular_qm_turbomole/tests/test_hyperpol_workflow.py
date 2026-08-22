@@ -8,6 +8,7 @@ from hyperpolarizibility.hyperpolarization_records import (
     _display_label,
     _fill_smiles_and_formula,
     _functional_label,
+    _wavelength_label,
 )
 from hyperpolarizibility.workflows import (
     HyperpolarizabilitySettings,
@@ -230,6 +231,14 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     )
     default_doc = defaulted.model_dump_doc()
     assert default_doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.NONE.value
+    assert default_doc.get("wavelength") is None
+
+    with_wavelength = HyperPolarizationRecord(
+        molecule=molecule,
+        started_at=datetime.now(timezone.utc),
+        wavelength=1064.0,
+    )
+    assert with_wavelength.model_dump_doc()["wavelength"] == pytest.approx(1064.0)
 
 
 def test_hyperpolarization_record_schema_nests_turbomole_functional():
@@ -254,6 +263,14 @@ def test_functional_label_reads_enum_and_legacy_nested_functional():
     )
     assert _functional_label(record) == "cam-b3lyp"
     assert _basis_label(record) == "def2-TZVP"
+    assert _wavelength_label(record) == "N/A"
+    assert _wavelength_label(
+        HyperPolarizationRecord(
+            molecule=molecule,
+            started_at=datetime.now(timezone.utc),
+            wavelength=1064.0,
+        )
+    ) == "1064.0"
 
     nested = type("LegacyRecord", (), {"functional": Functional(functional=FunctionalEnum.PBE)})()
     assert _functional_label(nested) == "PBE"

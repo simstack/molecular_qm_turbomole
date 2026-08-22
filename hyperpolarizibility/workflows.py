@@ -468,12 +468,14 @@ async def hyperpolarizibility(
         molecule = fill_molecule_labels(optimization_qm_input.molecule)
         node_runner.info(f"Running workflow '{optimization_qm_input.name}'.")
 
+        wavelength = float(hyperpolarizability_settings.hyperpol_frequency_nm or 0.0)
         hyperpolarization_record = HyperPolarizationRecord(
             molecule=await _ensure_db_molecule(molecule),
             functional=optimization_qm_input.functional,
             dispersion_correction=optimization_qm_input.dispersion_correction,
             basis_set=optimization_qm_input.basis_set,
             started_at=datetime.now(timezone.utc),
+            wavelength=wavelength if wavelength > 0.0 else None,
         )
         node_runner.record = hyperpolarization_record
 

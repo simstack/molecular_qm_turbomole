@@ -3,11 +3,17 @@
     {
       "name": "Default",
       "files": [
-        "molecular_qm_turbomole/models/turbomole_input.py",
-        "molecular_qm_turbomole/tests/test_input_model.py",
-        "molecular_qm_turbomole/tests/test_migrate_qm_input_docs.py",
+        "hyperpolarizibility/hyperpolarization_record.py",
+        "hyperpolarizibility/hyperpolarization_records.py",
+        "hyperpolarizibility/workflows.py",
+        "molecular_qm_turbomole/tests/test_hyperpol_workflow.py",
         ".vscode/changelists.json",
-        "molecular_qm_turbomole/lib/migrate_qm_input_docs.py"
+        "hyperpolarizibility/hyperpol_runner.py",
+        "molecular_qm_turbomole/lib/molecule_labels.py",
+        "molecular_qm_turbomole/lib/migrate_qm_input_docs.py",
+        "scripts/migrate_turbomole_qm_input_models.py",
+        "molecular_qm_turbomole/tests/test_hyperpol_runner.py",
+        "molecular_qm_turbomole/tests/test_migrate_qm_input_docs.py"
       ]
     }
   ],

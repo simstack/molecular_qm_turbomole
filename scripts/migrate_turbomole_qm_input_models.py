@@ -3,7 +3,7 @@
 Rewrites nested EmbeddedModel payloads (basis set, dispersion) into Model
 documents with ``id`` so they still parse in the UI, copies legacy
 ``TurbomoleQMInput`` docs into ``turbomole_qm_input2``, and rebuilds a Dataset
-from ``HyperPolarizationRecord``.
+from ``HyperPolarizationRecord`` after deleting stale ``hyperpol_runner`` DataSets.
 
 Uses the database named in simstack.toml. Does not touch test_database.
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skip-dataset",
         action="store_true",
-        help="Only rewrite QM input / record BSON; do not rebuild the migrated DataSet",
+        help="Only rewrite QM input / record BSON; do not rebuild the hyperpol DataSet",
     )
     args = parser.parse_args()
     try:

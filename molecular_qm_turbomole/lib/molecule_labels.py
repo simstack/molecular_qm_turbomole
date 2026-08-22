@@ -8,14 +8,27 @@ def _is_missing_label(value: Any) -> bool:
     return not text or text.lower().startswith("error")
 
 
+def _usable_label(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower().startswith("error"):
+        return None
+    return text
+
+
 def fill_molecule_labels(molecule: Any) -> Any:
     """Compute SMILES and formula when missing or previously recorded as util-missing."""
     if molecule is None:
         return molecule
     if _is_missing_label(getattr(molecule, "smiles", None)) and hasattr(molecule, "make_smiles"):
-        molecule.smiles = molecule.make_smiles()
+        computed = molecule.make_smiles()
+        if _usable_label(computed) is not None:
+            molecule.smiles = computed
     if _is_missing_label(getattr(molecule, "formula", None)) and hasattr(molecule, "make_formula"):
-        molecule.formula = molecule.make_formula()
+        computed = molecule.make_formula()
+        if _usable_label(computed) is not None:
+            molecule.formula = computed
     return molecule
 
 
