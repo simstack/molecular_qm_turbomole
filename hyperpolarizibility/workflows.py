@@ -398,7 +398,7 @@ class HyperPolarizationRecord(Model):
     field_name: str = "HyperPolarizationRecord"
     molecule: Molecule = Reference()
     functional: Functional = Field(default_factory=Functional)
-    dispersion_correction: Optional[DispersionCorrection] = Field(default=None)
+    dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
     started_at: datetime

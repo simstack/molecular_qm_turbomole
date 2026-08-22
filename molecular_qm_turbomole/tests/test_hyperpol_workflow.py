@@ -1,6 +1,9 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from hyperpolarizibility.workflows import (
+    HyperPolarizationRecord,
     HyperpolarizabilitySettings,
     _apply_hyperpolarizability_settings,
     _build_hyperpol_input,
@@ -198,6 +201,29 @@ $end
     table = parse_vibspectrum_file(path)
     assert table is not None
     assert [row["frequency_cm_1"] for row in table.row] == [-0.00, -0.00, 315.76]
+
+
+def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
+    """Optional[EmbeddedModel] crashes odmantic model_dump_doc; keep DispersionCorrection required."""
+    molecule = _water()
+    record = HyperPolarizationRecord(
+        molecule=molecule,
+        functional=Functional(
+            functional=FunctionalEnum.B3LYP,
+            dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+        ),
+        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+        started_at=datetime.now(timezone.utc),
+    )
+    doc = record.model_dump_doc()
+    assert doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.D3BJ.value
+
+    defaulted = HyperPolarizationRecord(
+        molecule=molecule,
+        started_at=datetime.now(timezone.utc),
+    )
+    default_doc = defaulted.model_dump_doc()
+    assert default_doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.NONE.value
 
 
 def test_beta_zzz_by_pair_reads_simple_table():
