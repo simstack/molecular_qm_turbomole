@@ -100,6 +100,8 @@ def _dispersion_from_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     existing = doc.get("dispersion_correction")
     if isinstance(existing, dict) and existing.get("value") not in (None, ""):
         return as_dispersion_model_doc(existing)
+    if existing not in (None, ""):
+        return as_dispersion_model_doc(existing)
     functional = doc.get("functional")
     nested = functional.get("dispersion_correction") if isinstance(functional, dict) else None
     return as_dispersion_model_doc(nested)

@@ -124,7 +124,9 @@ class DispersionCorrection(EmbeddedModel):
     @classmethod
     def ensure_fieldname(cls, data):
         if not isinstance(data, dict):
-            return data
+            if data in (None, ""):
+                return {"field_name": cls.__name__, "value": DispersionCorrectionEnum.NONE}
+            return {"field_name": cls.__name__, "value": data}
         data.pop("id", None)
         data.pop("_id", None)
         if "field_name" not in data:
@@ -159,7 +161,9 @@ class TurbomoleBasisSet2(EmbeddedModel):
     @classmethod
     def ensure_fieldname(cls, data):
         if not isinstance(data, dict):
-            return data
+            if data in (None, ""):
+                return {"field_name": cls.__name__, "basis_set": TURBOMOLE_DEFAULT_BASIS_SET}
+            return {"field_name": cls.__name__, "basis_set": str(data)}
         data.pop("id", None)
         data.pop("_id", None)
         if "field_name" not in data:
@@ -228,8 +232,6 @@ class TurbomoleQMInput2(Model):
     open_shell_calculation: bool = Field(
         False, json_schema_extra={"description": "Open shell calculation"}
     )
-    active_electrons: int = Field(0, json_schema_extra={"description": "number of active electrons"})
-    active_orbitals: int = Field(0, json_schema_extra={"description": "number of active orbitals"})
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
     dispersion_correction: DispersionCorrection = Field(
@@ -404,8 +406,6 @@ class TurbomoleQMInput2(Model):
             "hyperpolarizability",
             "hyperpol_frequency_nm",
             "id",
-            "active_orbitals",
-            "active_electrons",
             "print_level",
             "control_groups",
         ]

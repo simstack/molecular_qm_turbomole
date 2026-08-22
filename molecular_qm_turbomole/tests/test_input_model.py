@@ -54,6 +54,8 @@ def test_turbomole_qm_input2_keeps_explicit_values_without_massaging():
     assert "hyperpolarizability_mode" not in TurbomoleQMInput2.model_fields
     assert "turbomole_cosmo" not in TurbomoleQMInput2.model_fields
     assert "blocks" not in TurbomoleQMInput2.model_fields
+    assert "active_electrons" not in TurbomoleQMInput2.model_fields
+    assert "active_orbitals" not in TurbomoleQMInput2.model_fields
     assert "control_groups" in TurbomoleQMInput2.model_fields
 
 
@@ -67,6 +69,8 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "hyperpolarizability_mode" not in schema["properties"]
     assert "turbomole_cosmo" not in schema["properties"]
     assert "blocks" not in schema["properties"]
+    assert "active_electrons" not in schema["properties"]
+    assert "active_orbitals" not in schema["properties"]
     assert "control_groups" in schema["properties"]
     assert "dispersion_correction" in schema["properties"]
     functional_schema = schema["properties"]["functional"]
@@ -90,6 +94,8 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "hyperpol_frequency_nm" in schema["properties"]
     assert "edelt" not in schema["properties"]
     assert "edelt" not in ui["ui:order"]
+    assert "active_electrons" not in ui["ui:order"]
+    assert "active_orbitals" not in ui["ui:order"]
     assert "solvent_epsilon" in schema["properties"]
     assert "solvent_refind" in schema["properties"]
     assert "gw_enabled" not in ui["ui:order"]

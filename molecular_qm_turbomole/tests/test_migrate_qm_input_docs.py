@@ -100,8 +100,6 @@ def test_already_migrated_qm_input2_is_unchanged():
         "scfconv": 8,
         "scfiterlimit": 100,
         "open_shell_calculation": False,
-        "active_electrons": 0,
-        "active_orbitals": 0,
         "basis_set": {"field_name": "TurbomoleBasisSet2", "basis_set": "def2-SVP"},
         "functional": {"field_name": "TurbomoleFunctional", "functional": "b3-lyp"},
         "dispersion_correction": {"field_name": "DispersionCorrection", "value": "NONE"},
@@ -135,6 +133,8 @@ def test_static_bool_hyperpolarizability_without_wavelength():
         "name": "Title",
         "basis_set": {"field_name": "TurbomoleBasisSet2", "basis_set": "def2-SVP"},
         "functional": {"field_name": "Functional", "functional": "PBE"},
+        "active_electrons": 8,
+        "active_orbitals": 6,
         "hyperpolarizability": True,
         "hyperpol_frequency_nm": 0.0,
     }
@@ -146,6 +146,8 @@ def test_static_bool_hyperpolarizability_without_wavelength():
         "field_name": "TurbomoleFunctional",
         "functional": "pbe",
     }
+    assert "active_electrons" not in upgraded
+    assert "active_orbitals" not in upgraded
 
 
 def test_hyperpolarization_record_lifts_dispersion_and_nests_functional():
@@ -179,6 +181,55 @@ def test_hyperpolarization_record_lifts_dispersion_and_nests_functional():
     assert "id" not in upgraded["dispersion_correction"]
     assert isinstance(upgraded["hyperpol"]["id"], ObjectId)
     assert upgraded["hyperpol"]["row"][0]["beta_zzz_1e30_esu"] == 1.2
+
+
+def test_upgrade_converts_string_embedded_fields():
+    original = {
+        "_id": ObjectId(),
+        "field_name": "HyperPolarizationRecord",
+        "molecule": ObjectId(),
+        "functional": "B3LYP",
+        "basis_set": "def2-TZVP",
+        "dispersion_correction": "D3BJ",
+        "grids_used": ["m3"],
+        "success": True,
+    }
+    upgraded, changed = upgrade_hyperpolarization_record_doc(original)
+    assert changed
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "b3-lyp",
+    }
+    assert upgraded["basis_set"] == {
+        "field_name": "TurbomoleBasisSet2",
+        "basis_set": "def2-TZVP",
+    }
+    assert upgraded["dispersion_correction"]["value"] == "D3BJ"
+
+
+def test_upgrade_qm_input_converts_string_embedded_fields():
+    original = {
+        "_id": ObjectId(),
+        "field_name": "TurbomoleQMInput",
+        "molecule": ObjectId(),
+        "name": "water",
+        "basis_set": "def2-TZVP",
+        "functional": "CAM-B3LYP",
+        "dispersion_correction": "D3",
+        "hyperpolarizability": "none",
+        "hyperpol_frequency_nm": 0.0,
+    }
+    upgraded, changed = upgrade_turbomole_qm_input_doc(original)
+    assert changed
+    assert upgraded["functional"] == {
+        "field_name": "TurbomoleFunctional",
+        "functional": "cam-b3lyp",
+    }
+    assert upgraded["basis_set"] == {
+        "field_name": "TurbomoleBasisSet2",
+        "basis_set": "def2-TZVP",
+    }
+    assert upgraded["dispersion_correction"]["value"] == "D3"
 
 
 def test_upgrade_stored_document_dispatches_by_field_name():

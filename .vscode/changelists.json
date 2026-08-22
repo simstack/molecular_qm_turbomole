@@ -3,7 +3,11 @@
     {
       "name": "Default",
       "files": [
-        ".vscode/changelists.json"
+        "molecular_qm_turbomole/models/turbomole_input.py",
+        "molecular_qm_turbomole/tests/test_input_model.py",
+        "molecular_qm_turbomole/tests/test_migrate_qm_input_docs.py",
+        ".vscode/changelists.json",
+        "molecular_qm_turbomole/lib/migrate_qm_input_docs.py"
       ]
     }
   ],
