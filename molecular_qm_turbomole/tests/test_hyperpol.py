@@ -10,6 +10,7 @@ from molecular_qm_turbomole.lib.control_utils import (
 )
 from molecular_qm_turbomole.lib.env import build_hyperpolarizability_script
 from molecular_qm_turbomole.lib.hyperpol import (
+    AU_TO_1E30_ESU,
     apply_hyperpolarizability_control,
     hyperpolarizability_requested,
     hyperpolarizability_wavelength_nm,
@@ -166,12 +167,19 @@ def test_parse_and_verify_dynamic_hyperpols(tmp_path):
     )
     pairs = verify_dynamic_hyperpols_output(model, hyperpols)
     assert any(abs(right - 1064.0) < 1e-6 for _left, right in pairs)
-    table = parse_hyperpolarizability_table(hyperpols)
+    control = tmp_path / "control"
+    control.write_text(
+        "$dipole from ridft\n  x    0.0    y    0.0    z    1.0    a.u.\n$end\n",
+        encoding="utf-8",
+    )
+    table = parse_hyperpolarizability_table(hyperpols, workdir=tmp_path)
     assert table is not None
+    assert table.heading == ["pair", "beta_zzz_1e30_esu"]
     assert [row["pair"] for row in table.row] == [1, 2]
-    assert table.row[0]["beta_zzz_au"] == pytest.approx(12.5)
-    assert table.row[1]["beta_zzz_au"] == pytest.approx(34.0)
-    assert table.row[1]["frequency_nm_2"] == pytest.approx(1064.0)
+    assert table.row[0]["beta_zzz_1e30_esu"] == pytest.approx(12.5 * AU_TO_1E30_ESU)
+    assert table.row[1]["beta_zzz_1e30_esu"] == pytest.approx(34.0 * AU_TO_1E30_ESU)
+    assert not (tmp_path / "hyperpol_processed.txt").exists()
+    assert not (tmp_path / "hyperpol_processed.json").exists()
 
 
 def test_verify_dynamic_hyperpols_rejects_static_only(tmp_path):

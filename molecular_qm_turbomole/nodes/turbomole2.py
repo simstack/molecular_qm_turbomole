@@ -108,7 +108,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
 
     SimstackResult:
         result (QMResult): Final energy, structure, and convergence status.
-        hyperpolarizability (SimpleTable): Frequency-pair beta_zzz values when hyperpolarizability is requested.
+        hyperpolarizability (SimpleTable): Frequency-pair beta_zzz in 10^-30 esu (z-dipole frame).
     """
     node_runner = kwargs["node_runner"]
     node_runner.info("Starting turbomole2 calculation")
@@ -179,6 +179,9 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             hyperpol_table = parse_hyperpolarizability_table()
             if hyperpol_table is not None:
                 node_runner.hyperpolarizability = hyperpol_table
+                node_runner.info(
+                    f"Parsed hyperpolarizability SimpleTable with {len(hyperpol_table.row)} frequency pair(s)."
+                )
             else:
                 node_runner.warning(
                     "escf produced hyperpols but no beta_zzz frequency pairs could be parsed."

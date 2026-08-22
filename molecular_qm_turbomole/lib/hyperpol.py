@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+import numpy as np
+
 from molecular_qm_turbomole.lib.control_utils import (
     patch_control_file,
     render_hyperpolarizability_data_group,
@@ -11,6 +13,12 @@ from molecular_qm_turbomole.models.turbomole_input import (
 )
 from simstack.models.simple_table import SimpleTable
 
+# Same conversion used by the historical turbomole SimpleTable / hyper_main parser.
+AU_TO_1E30_ESU = 8.6393e-3
+DIPOLE_NORM_EPS = 1e-12
+ALIGNMENT_TOL = 1e-8
+_DIPOLE_CANDIDATES = ("control", "ridft.out", "dscf.out", "job.last", "escf.out")
+
 _NUMBER_RE = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?"
 _PAIR_HEADER_RE = re.compile(
     r"\b(?P<number>\d+)(?:st|nd|rd|th)\s+pair\s+of\s+frequencies\b",
@@ -20,7 +28,14 @@ _FREQ_NM_RE = re.compile(
     rf"Frequencies\s*/\s*nm:\s+(?P<left>{_NUMBER_RE})\s+(?P<right>{_NUMBER_RE})",
     re.IGNORECASE,
 )
-_ZZZ_RE = re.compile(rf"\bzzz\s+(?P<value>{_NUMBER_RE})", re.IGNORECASE)
+_COMPONENT_VALUE_RE = re.compile(
+    rf"\b(?P<component>[xyz]{{3}})\b\s*(?P<value>{_NUMBER_RE})",
+    re.IGNORECASE,
+)
+_CONTROL_DIPOLE_RE = re.compile(
+    rf"\bx\s+(?P<x>{_NUMBER_RE})\s+y\s+(?P<y>{_NUMBER_RE})\s+z\s+(?P<z>{_NUMBER_RE})",
+    re.IGNORECASE,
+)
 
 
 def hyperpolarizability_requested(qm_input: TurbomoleQMInput2) -> bool:
@@ -127,16 +142,57 @@ def verify_dynamic_hyperpols_output(
 
 def parse_hyperpolarizability_table(
     hyperpols_path: Path = Path("hyperpols"),
+    *,
+    workdir: Path = Path("."),
 ) -> SimpleTable | None:
+    """
+    Historical turbomole SimpleTable: one row per frequency pair with
+    z-dipole-aligned beta_zzz in 10^-30 esu. Does not write extra processed files.
+    """
+    hyperpols_path = Path(hyperpols_path)
     if not hyperpols_path.exists():
         return None
 
+    try:
+        tensors = _parse_beta_tensors(hyperpols_path)
+    except ValueError:
+        return None
+    if not tensors:
+        return None
+
+    try:
+        rotation = _rotation_matrix_from_workdir(Path(workdir))
+    except ValueError:
+        rotation = None
     table = SimpleTable(name="Hyperpolarizability")
     table.add_column("pair", "int")
-    table.add_column("frequency_nm_1", "float")
-    table.add_column("frequency_nm_2", "float")
-    table.add_column("beta_zzz_au", "float")
+    table.add_column("beta_zzz_1e30_esu", "float")
 
+    for pair_number, beta_au in tensors:
+        aligned = rotate_beta_tensor(beta_au, rotation) if rotation is not None else beta_au
+        table.add_row(
+            {
+                "pair": pair_number,
+                "beta_zzz_1e30_esu": float(aligned[2, 2, 2] * AU_TO_1E30_ESU),
+            }
+        )
+
+    if not table.row:
+        return None
+    return table
+
+
+def rotate_beta_tensor(beta_tensor: np.ndarray, rotation_matrix: np.ndarray) -> np.ndarray:
+    return np.einsum(
+        "ai,bj,ck,ijk->abc",
+        rotation_matrix,
+        rotation_matrix,
+        rotation_matrix,
+        beta_tensor,
+    )
+
+
+def _parse_beta_tensors(hyperpols_path: Path) -> list[tuple[int, np.ndarray]]:
     lines = hyperpols_path.read_text(encoding="utf-8", errors="replace").splitlines()
     headers: list[tuple[int, int]] = []
     for index, line in enumerate(lines):
@@ -144,31 +200,121 @@ def parse_hyperpolarizability_table(
         if match:
             headers.append((index, int(match.group("number"))))
     if not headers:
-        return None
+        raise ValueError(f"Could not find frequency-pair blocks in '{hyperpols_path}'.")
 
+    tensors: list[tuple[int, np.ndarray]] = []
     for header_position, (start_index, pair_number) in enumerate(headers):
         next_start = (
             headers[header_position + 1][0] if header_position + 1 < len(headers) else len(lines)
         )
-        block = "\n".join(lines[start_index:next_start])
-        freq_match = _FREQ_NM_RE.search(block)
-        zzz_match = _ZZZ_RE.search(block)
-        if zzz_match is None:
-            continue
-        freq_1 = _parse_float_token(freq_match.group("left")) if freq_match else 0.0
-        freq_2 = _parse_float_token(freq_match.group("right")) if freq_match else 0.0
-        table.add_row(
-            {
-                "pair": pair_number,
-                "frequency_nm_1": freq_1,
-                "frequency_nm_2": freq_2,
-                "beta_zzz_au": _parse_float_token(zzz_match.group("value")),
-            }
+        tensors.append(
+            (pair_number, _parse_beta_components(lines[start_index + 1 : next_start], pair_number))
         )
+    return tensors
 
-    if not table.row:
+
+def _parse_beta_components(lines: list[str], pair_number: int) -> np.ndarray:
+    beta = np.zeros((3, 3, 3), dtype=float)
+    seen: set[str] = set()
+    axis_index = {"x": 0, "y": 1, "z": 2}
+    for line in lines:
+        for match in _COMPONENT_VALUE_RE.finditer(line):
+            component = match.group("component").lower()
+            indices = tuple(axis_index[axis] for axis in component)
+            beta[indices] = _parse_float_token(match.group("value"))
+            seen.add(component)
+    if len(seen) != 27:
+        raise ValueError(
+            f"Frequency pair {pair_number} contains {len(seen)} beta components; expected 27."
+        )
+    return beta
+
+
+def _rotation_matrix_from_workdir(workdir: Path) -> np.ndarray | None:
+    dipole = _parse_dipole_from_workdir(workdir)
+    if dipole is None:
         return None
-    return table
+    return _rotation_matrix_to_align_with_positive_z(dipole)
+
+
+def _parse_dipole_from_workdir(workdir: Path) -> np.ndarray | None:
+    for name in _DIPOLE_CANDIDATES:
+        path = workdir / name
+        if not path.is_file():
+            continue
+        try:
+            return _parse_dipole_vector(path)
+        except ValueError:
+            continue
+    return None
+
+
+def _parse_dipole_vector(path: Path) -> np.ndarray:
+    content = path.read_text(encoding="utf-8", errors="replace")
+    if path.name == "control" or "$dipole" in content.casefold():
+        for line in content.splitlines():
+            match = _CONTROL_DIPOLE_RE.search(line)
+            if match:
+                return np.array(
+                    [
+                        _parse_float_token(match.group("x")),
+                        _parse_float_token(match.group("y")),
+                        _parse_float_token(match.group("z")),
+                    ],
+                    dtype=float,
+                )
+
+    lines = content.splitlines()
+    for line_index, line in enumerate(lines):
+        if "dipole moment" not in line.lower():
+            continue
+        components: dict[str, float] = {}
+        for block_line in lines[line_index + 1 : line_index + 20]:
+            stripped = block_line.strip()
+            if not stripped:
+                if components:
+                    break
+                continue
+            parts = stripped.split()
+            if parts and parts[0].lower() in {"x", "y", "z"}:
+                numbers = [_parse_float_token(token) for token in re.findall(_NUMBER_RE, stripped)]
+                if numbers:
+                    components[parts[0].lower()] = numbers[-1]
+            if all(axis in components for axis in ("x", "y", "z")):
+                return np.array(
+                    [components["x"], components["y"], components["z"]],
+                    dtype=float,
+                )
+
+    raise ValueError(f"Could not parse a dipole vector from '{path}'.")
+
+
+def _rotation_matrix_to_align_with_positive_z(dipole_vector: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(dipole_vector))
+    if norm < DIPOLE_NORM_EPS:
+        raise ValueError("The permanent dipole norm is near zero; cannot define a z-dipole frame.")
+
+    source = dipole_vector / norm
+    target = np.array([0.0, 0.0, 1.0], dtype=float)
+    dot = float(np.clip(np.dot(source, target), -1.0, 1.0))
+    if np.isclose(dot, 1.0, atol=ALIGNMENT_TOL):
+        return np.eye(3)
+    if np.isclose(dot, -1.0, atol=ALIGNMENT_TOL):
+        return np.array(
+            [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]],
+            dtype=float,
+        )
+    cross = np.cross(source, target)
+    skew = np.array(
+        [
+            [0.0, -cross[2], cross[1]],
+            [cross[2], 0.0, -cross[0]],
+            [-cross[1], cross[0], 0.0],
+        ],
+        dtype=float,
+    )
+    sin_squared = float(np.dot(cross, cross))
+    return np.eye(3) + skew + skew @ skew * ((1.0 - dot) / sin_squared)
 
 
 def _parse_float_token(token: str) -> float:
