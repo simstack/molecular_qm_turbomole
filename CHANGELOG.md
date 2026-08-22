@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.4.3 (2026-08-22)
+
+### Bug Fixes
+
+- Introduce dispersion correction as a top-level model in TURBOMOLE input
+  ([`0a4778e`](https://github.com/simstack/molecular_qm_turbomole/commit/0a4778ea663c010fddddab9aaf4dce9756ff8028))
+
+
 ## v0.4.2 (2026-08-22)
 
 ### Bug Fixes
