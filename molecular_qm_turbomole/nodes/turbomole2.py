@@ -14,7 +14,6 @@ from molecular_qm_turbomole.lib.env import (
     prepend_tm_env,
 )
 from molecular_qm_turbomole.lib.opt_artifacts import (
-    MAX_OPT_CYCLES,
     OPT_CHART_INTERVAL,
     OptimizationChartTracker,
     inspect_geometry_optimization,
@@ -111,9 +110,10 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
     tracker = OptimizationChartTracker(kwargs)
     last_cycles = 0
     converged = False
+    max_opt_cycles = int(qm_input.max_opt_cycles)
     try:
-        while last_cycles < MAX_OPT_CYCLES:
-            chunk = min(OPT_CHART_INTERVAL, MAX_OPT_CYCLES - last_cycles)
+        while last_cycles < max_opt_cycles:
+            chunk = min(OPT_CHART_INTERVAL, max_opt_cycles - last_cycles)
             run_script = prepend_tm_env(
                 build_ground_state_script(
                     optimization=True,
@@ -127,7 +127,7 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
             subprocess_name = f"turbomole_exe_c{chunk_end:03d}"
             node_runner.info(
                 f"Running jobex chunk cycles {last_cycles + 1}-{chunk_end} "
-                f"(max {MAX_OPT_CYCLES})."
+                f"(max {max_opt_cycles})."
             )
             ok = node_runner.subprocess(subprocess_name, run_script)
             tracker.update_from_directory(".")
@@ -154,7 +154,7 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
             last_cycles = new_cycles
         if not converged:
             raise RuntimeError(
-                f"Structure optimization did not converge in {MAX_OPT_CYCLES} cycles."
+                f"Structure optimization did not converge in {max_opt_cycles} cycles."
             )
     finally:
         try:
@@ -211,6 +211,8 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"functional={qm_input.functional.functional.value}, "
         f"gridsize={qm_input.gridsize}, "
         f"scfconv={qm_input.scfconv}, "
+        f"scfiterlimit={qm_input.scfiterlimit}, "
+        f"max_opt_cycles={qm_input.max_opt_cycles}, "
         f"frequencies={qm_input.frequencies}, "
         f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
         f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}"

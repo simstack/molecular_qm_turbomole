@@ -133,7 +133,14 @@ class TurbomoleInputWriter:
             lines.extend(["n", f"u {self.qm_input.multiplicity - 1}", "*", ""])
 
         lines.extend(
-            ["scf", "iter", "100", "conv", str(int(self.qm_input.scfconv)), ""]
+            [
+                "scf",
+                "iter",
+                str(int(self.qm_input.scfiterlimit)),
+                "conv",
+                str(int(self.qm_input.scfconv)),
+                "",
+            ]
         )
         lines.extend(
             [
@@ -145,10 +152,11 @@ class TurbomoleInputWriter:
             ]
         )
         logger.info(
-            "Configured TURBOMOLE functional=%s grid=%s scfconv=%s",
+            "Configured TURBOMOLE functional=%s grid=%s scfconv=%s scfiterlimit=%s",
             functional_name,
             self.qm_input.gridsize,
             self.qm_input.scfconv,
+            self.qm_input.scfiterlimit,
         )
 
         if dispersion:

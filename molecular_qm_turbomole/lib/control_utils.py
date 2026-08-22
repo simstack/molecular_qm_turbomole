@@ -45,6 +45,10 @@ def render_scfconv_data_group(scfconv: int) -> list[str]:
     return [f"$scfconv {int(scfconv)}"]
 
 
+def render_scfiterlimit_data_group(scfiterlimit: int) -> list[str]:
+    return [f"$scfiterlimit {int(scfiterlimit)}"]
+
+
 def control_group_name(first_line: str) -> str:
     token = first_line.strip().split()[0]
     return token.casefold()

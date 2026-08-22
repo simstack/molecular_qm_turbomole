@@ -99,6 +99,12 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert ui["hyperpol_frequency_nm"]["ui:condition"] == {
         "hyperpolarizability": HyperpolarizabilityModeEnum.DYNAMIC.value
     }
+    assert "scfiterlimit" in schema["properties"]
+    assert "max_opt_cycles" in schema["properties"]
+    assert ui["ui:order"].index("scfconv") < ui["ui:order"].index("scfiterlimit")
+    assert ui["ui:order"].index("optimization") < ui["ui:order"].index("max_opt_cycles")
+    assert ui["ui:order"].index("max_opt_cycles") < ui["ui:order"].index("use_desy")
+    assert ui["max_opt_cycles"]["ui:condition"] == {"optimization": True}
 
 
 def test_boolean_hyperpolarizability_is_rejected():
@@ -127,16 +133,25 @@ def test_input_writer_emits_define_and_coord(tmp_path):
     assert "grid m3" in define_text
     assert "conv" in define_text
     assert "8" in define_text.split("conv", 1)[1].splitlines()[1]
+    assert "100" in define_text.split("iter", 1)[1].splitlines()[1]
     assert "ri" in define_text
 
 
-def test_input_writer_honors_custom_grid_and_scfconv(tmp_path):
-    qm_input = _qm_input(gridsize="m4", scfconv=7)
+def test_input_writer_honors_custom_grid_scfconv_and_scfiterlimit(tmp_path):
+    qm_input = _qm_input(gridsize="m4", scfconv=7, scfiterlimit=250)
     define = tmp_path / "define.inp"
     TurbomoleInputWriter(qm_input).write_define_input(str(define))
     define_text = define.read_text(encoding="utf-8")
     assert "grid m4" in define_text
     assert "7" in define_text.split("conv", 1)[1].splitlines()[1]
+    assert "250" in define_text.split("iter", 1)[1].splitlines()[1]
+
+
+def test_scfiterlimit_and_max_opt_cycles_reject_non_positive_values():
+    with pytest.raises(ValidationError):
+        _qm_input(scfiterlimit=0)
+    with pytest.raises(ValidationError):
+        _qm_input(max_opt_cycles=0)
 
 
 def test_replace_control_data_groups_is_idempotent():

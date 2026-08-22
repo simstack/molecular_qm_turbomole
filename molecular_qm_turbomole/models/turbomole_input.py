@@ -14,6 +14,8 @@ from simstack.util.generate_ui_schema import generate_ui_schema
 TURBOMOLE_DEFAULT_BASIS_SET = "def2-SVP"
 TURBOMOLE_DEFAULT_GRID_SIZE = "m3"
 TURBOMOLE_DEFAULT_SCFCONV = 8
+TURBOMOLE_DEFAULT_SCFITERLIMIT = 100
+TURBOMOLE_DEFAULT_MAX_OPT_CYCLES = 100
 
 TURBOMOLE_BASIS_SET_VALUES: List[str] = [
     "SV",
@@ -130,6 +132,17 @@ class TurbomoleQMInput2(Model):
             "title": "scfconv",
         },
     )
+    scfiterlimit: int = Field(
+        TURBOMOLE_DEFAULT_SCFITERLIMIT,
+        ge=1,
+        json_schema_extra={
+            "description": (
+                f"Maximum number of SCF iterations ($scfiterlimit). "
+                f"Default: {TURBOMOLE_DEFAULT_SCFITERLIMIT}."
+            ),
+            "title": "scfiterlimit",
+        },
+    )
     open_shell_calculation: bool = Field(
         False, json_schema_extra={"description": "Open shell calculation"}
     )
@@ -142,6 +155,17 @@ class TurbomoleQMInput2(Model):
     )
     optimization: bool = Field(
         False, json_schema_extra={"description": "Perform geometry optimization"}
+    )
+    max_opt_cycles: int = Field(
+        TURBOMOLE_DEFAULT_MAX_OPT_CYCLES,
+        ge=1,
+        json_schema_extra={
+            "description": (
+                f"Maximum number of geometry optimization steps (jobex -c). "
+                f"Default: {TURBOMOLE_DEFAULT_MAX_OPT_CYCLES}."
+            ),
+            "title": "max_opt_cycles",
+        },
     )
     use_desy: bool = Field(
         False,
@@ -253,6 +277,7 @@ class TurbomoleQMInput2(Model):
             "multiplicity",
             "gridsize",
             "scfconv",
+            "scfiterlimit",
             "basis_set",
             "functional",
             "solvent_mode",
@@ -261,6 +286,7 @@ class TurbomoleQMInput2(Model):
             "solvent_refind",
             "gradients",
             "optimization",
+            "max_opt_cycles",
             "use_desy",
             "open_shell_calculation",
             "frequencies",
@@ -285,5 +311,8 @@ class TurbomoleQMInput2(Model):
         }
         ui_schema.setdefault("hyperpol_frequency_nm", {})["ui:condition"] = {
             "hyperpolarizability": HyperpolarizabilityModeEnum.DYNAMIC.value
+        }
+        ui_schema.setdefault("max_opt_cycles", {})["ui:condition"] = {
+            "optimization": True
         }
         return ui_schema

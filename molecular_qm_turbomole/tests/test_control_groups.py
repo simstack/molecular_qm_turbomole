@@ -56,9 +56,9 @@ def test_parse_control_group_rejects_orca_percent_block():
         parse_control_group("%tddft\nnroots 5\nend")
 
 
-def test_parse_control_group_rejects_protected_dft():
+def test_parse_control_group_rejects_protected_scfiterlimit():
     with pytest.raises(ValueError, match="protected"):
-        parse_control_group("$dft\n functional pbe\n gridsize m4")
+        parse_control_group("$scfiterlimit 30")
 
 
 def test_parse_control_group_rejects_multiple_groups_in_one_entry():

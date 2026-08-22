@@ -3,20 +3,7 @@
     {
       "name": "Default",
       "files": [
-        "hyperpolarizibility/__init__.py",
-        "hyperpolarizibility/hyperpol_runner.py",
-        "hyperpolarizibility/hyperpolarizability_defaults.py",
-        "hyperpolarizibility/hyperpolarization_records.py",
-        "hyperpolarizibility/workflows.py",
-        "molecular_qm_turbomole/README.md",
-        "pyproject.toml",
-        "molecular_qm_turbomole/tests/test_hyperpol_workflow.py",
-        ".vscode/changelists.json",
-        "molecular_qm_turbomole/lib/env.py",
-        "molecular_qm_turbomole/lib/output_parser.py",
-        "molecular_qm_turbomole/nodes/turbomole2.py",
-        "molecular_qm_turbomole/lib/opt_artifacts.py",
-        "molecular_qm_turbomole/tests/test_opt_artifacts.py"
+        ".vscode/changelists.json"
       ]
     }
   ],

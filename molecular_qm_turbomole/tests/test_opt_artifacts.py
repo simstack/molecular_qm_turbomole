@@ -236,7 +236,10 @@ async def test_run_optimization_chunks_flushes_at_ten_and_twenty(tmp_path, monke
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(basis_set=SimpleNamespace(basis_set="def2-SVP"))
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+    )
     await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
     assert calls["n"] == 2
     assert [steps[-1] for steps in flush_steps] == [10, 20, 20]
@@ -264,7 +267,46 @@ async def test_run_optimization_chunks_flushes_on_early_convergence(tmp_path, mo
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(basis_set=SimpleNamespace(basis_set="def2-SVP"))
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+    )
     await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
     assert all(steps[-1] == 7 for steps in flush_steps)
     assert flush_steps
+
+
+@pytest.mark.asyncio
+async def test_run_optimization_chunks_honors_max_opt_cycles(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+
+    seen_limits = []
+
+    def fake_subprocess(name, command, cwd=""):
+        seen_limits.append(command)
+        _write_energy(tmp_path, 5)
+        _write_gradient(tmp_path, 5)
+        (tmp_path / "GEO_OPT_FAILED").write_text(
+            "OPTIMIZATION DID NOT CONVERGE WITHIN MAXCYCLES\n",
+            encoding="utf-8",
+        )
+        return True
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=5,
+    )
+    with pytest.raises(RuntimeError, match="did not converge in 5 cycles"):
+        await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    assert len(seen_limits) == 1
+    assert "-c 5" in seen_limits[0]
