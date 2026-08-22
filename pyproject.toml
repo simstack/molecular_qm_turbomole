@@ -47,10 +47,15 @@ molecular_qm_util = { git = "https://github.com/simstack/molecular_qm_util.git" 
 simstack = { git = "https://github.com/simstack/simstack.git", rev = "celso-simstack" }
 
 [tool.uv]
+# int-nano: numpy 2.5+ has no usable wheel and fails to build (cython/meson).
 override-dependencies = [
     "molecular_qm_models @ git+https://github.com/simstack/molecular_qm_models.git",
     "molecular_qm_util @ git+https://github.com/simstack/molecular_qm_util.git",
     "simstack @ git+https://github.com/simstack/simstack.git@celso-simstack",
+    "numpy<2.5.0",
+]
+constraint-dependencies = [
+    "numpy<2.5.0",
 ]
 
 
