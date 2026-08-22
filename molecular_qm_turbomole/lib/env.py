@@ -73,10 +73,46 @@ def build_define_script() -> str:
     return "\n".join(lines)
 
 
-def build_ground_state_script(*, optimization: bool, use_ri: bool, gradients: bool) -> str:
+def _aoforce_script_lines() -> list[str]:
+    return [
+        "aoforce > aoforce.out 2>&1 || { "
+        'echo "[TM ERROR] aoforce failed."; '
+        "tail -n 200 aoforce.out || true; "
+        "exit 24; "
+        "}",
+        "test -f vibspectrum || { "
+        'echo "[TM ERROR] vibspectrum not produced."; '
+        "ls -la; "
+        "tail -n 80 aoforce.out || true; "
+        "exit 25; "
+        "}",
+    ]
+
+
+def build_frequency_script() -> str:
+    lines = [
+        'echo "[TM] workdir: $(pwd)"',
+        'echo "[TM] aoforce: $(command -v aoforce)"',
+        *_aoforce_script_lines(),
+        'echo "[TM] produced files:"',
+        "ls -la",
+    ]
+    return "\n".join(lines)
+
+
+def build_ground_state_script(
+    *,
+    optimization: bool,
+    use_ri: bool,
+    gradients: bool,
+    frequencies: bool = False,
+    max_cycles: int | None = None,
+) -> str:
     scf_program = "ridft" if use_ri else "dscf"
     gradient_program = "rdgrad" if use_ri else "grad"
     jobex_command = "jobex -ri" if use_ri else "jobex"
+    if max_cycles is not None:
+        jobex_command = f"{jobex_command} -c {int(max_cycles)}"
     lines = [
         'echo "[TM] workdir: $(pwd)"',
         f'echo "[TM] SCF engine: {scf_program}"',
@@ -105,6 +141,8 @@ def build_ground_state_script(*, optimization: bool, use_ri: bool, gradients: bo
                 "exit 23; "
                 "}"
             )
+    if frequencies:
+        lines.extend(_aoforce_script_lines())
     lines.append('echo "[TM] produced files:"')
     lines.append("ls -la")
     return "\n".join(lines)

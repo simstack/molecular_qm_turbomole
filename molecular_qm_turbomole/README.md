@@ -15,8 +15,8 @@ scan `../simstack`. Installed packages (`simstack`, `molecular_qm_models`) are
 already registered via entry points, so this is enough:
 
 ```bash
-uv run create_model_table --dir molecular_qm_turbomole
-uv run create_node_table --dir molecular_qm_turbomole
+uv run create_model_table --dir molecular_qm_turbomole --dir hyperpolarizibility
+uv run create_node_table --dir molecular_qm_turbomole --dir hyperpolarizibility
 ```
 
 To scan sister source trees as well, make local junctions (gitignored, not submodules):
@@ -28,8 +28,8 @@ New-Item -ItemType Junction -Path simstack -Target ..\simstack\src\simstack
 ```
 
 ```bash
-uv run create_model_table --dir molecular_qm_turbomole --dir molecular_qm_models --dir simstack
-uv run create_node_table --dir molecular_qm_turbomole --dir simstack
+uv run create_model_table --dir molecular_qm_turbomole --dir hyperpolarizibility --dir molecular_qm_models --dir simstack
+uv run create_node_table --dir molecular_qm_turbomole --dir hyperpolarizibility --dir simstack
 ```
 
 ```bash

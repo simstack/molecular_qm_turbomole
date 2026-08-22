@@ -8,9 +8,16 @@ from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.control_utils import append_control_groups
 from molecular_qm_turbomole.lib.env import (
     build_define_script,
+    build_frequency_script,
     build_ground_state_script,
     build_hyperpolarizability_script,
     prepend_tm_env,
+)
+from molecular_qm_turbomole.lib.opt_artifacts import (
+    MAX_OPT_CYCLES,
+    OPT_CHART_INTERVAL,
+    OptimizationChartTracker,
+    inspect_geometry_optimization,
 )
 from molecular_qm_turbomole.lib.hyperpol import (
     apply_hyperpolarizability_control,
@@ -67,6 +74,8 @@ OUTPUT_FILES = (
     "job.last",
     "final_geometry.xyz",
     "gradient",
+    "aoforce.out",
+    "vibspectrum",
     "escf.out",
     "hyperpols",
 )
@@ -98,6 +107,88 @@ def _collect_output_files() -> list[str]:
     return [name for name in OUTPUT_FILES if Path(name).exists()]
 
 
+async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
+    tracker = OptimizationChartTracker(kwargs)
+    last_cycles = 0
+    converged = False
+    try:
+        while last_cycles < MAX_OPT_CYCLES:
+            chunk = min(OPT_CHART_INTERVAL, MAX_OPT_CYCLES - last_cycles)
+            run_script = prepend_tm_env(
+                build_ground_state_script(
+                    optimization=True,
+                    use_ri=should_use_ri(qm_input),
+                    gradients=False,
+                    frequencies=False,
+                    max_cycles=chunk,
+                )
+            )
+            chunk_end = last_cycles + chunk
+            subprocess_name = f"turbomole_exe_c{chunk_end:03d}"
+            node_runner.info(
+                f"Running jobex chunk cycles {last_cycles + 1}-{chunk_end} "
+                f"(max {MAX_OPT_CYCLES})."
+            )
+            ok = node_runner.subprocess(subprocess_name, run_script)
+            tracker.update_from_directory(".")
+            status, error = inspect_geometry_optimization(".")
+            force_flush = status != "continue"
+            await tracker.maybe_flush(force=force_flush)
+
+            if status == "converged":
+                node_runner.info("Geometry optimization converged.")
+                converged = True
+                break
+            if status == "failed":
+                raise RuntimeError(f"Geometry optimization failed: {error}")
+            if not ok and status != "continue":
+                raise RuntimeError(
+                    f"Turbomole ground-state calculation failed. Check {subprocess_name}.log."
+                )
+
+            new_cycles = tracker.latest_step
+            if new_cycles <= last_cycles:
+                raise RuntimeError(
+                    "jobex made no progress; energy file did not gain a new cycle."
+                )
+            last_cycles = new_cycles
+        if not converged:
+            raise RuntimeError(
+                f"Structure optimization did not converge in {MAX_OPT_CYCLES} cycles."
+            )
+    finally:
+        try:
+            tracker.update_from_directory(".")
+            await tracker.maybe_flush(force=True)
+        except Exception as exc:
+            node_runner.warning(f"Failed to store optimization charts: {exc}")
+
+
+async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
+    if qm_input.optimization:
+        await _run_optimization_chunks(qm_input, node_runner, kwargs)
+        if qm_input.frequencies:
+            freq_script = prepend_tm_env(build_frequency_script())
+            if not node_runner.subprocess("turbomole_aoforce", freq_script):
+                raise RuntimeError(
+                    "Turbomole frequency calculation failed. Check turbomole_aoforce.log."
+                )
+        return
+
+    run_script = prepend_tm_env(
+        build_ground_state_script(
+            optimization=False,
+            use_ri=should_use_ri(qm_input),
+            gradients=bool(qm_input.gradients),
+            frequencies=bool(qm_input.frequencies),
+        )
+    )
+    if not node_runner.subprocess("turbomole_exe", run_script):
+        raise RuntimeError(
+            "Turbomole ground-state calculation failed. Check turbomole_exe.log."
+        )
+
+
 @node(parameters=parameters)
 async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     """
@@ -120,6 +211,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"functional={qm_input.functional.functional.value}, "
         f"gridsize={qm_input.gridsize}, "
         f"scfconv={qm_input.scfconv}, "
+        f"frequencies={qm_input.frequencies}, "
         f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
         f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}"
     )
@@ -151,17 +243,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 + ", ".join(group[0].split()[0] for group in appended)
             )
 
-        run_script = prepend_tm_env(
-            build_ground_state_script(
-                optimization=bool(qm_input.optimization),
-                use_ri=should_use_ri(qm_input),
-                gradients=bool(qm_input.gradients),
-            )
-        )
-        if not node_runner.subprocess("turbomole_exe", run_script):
-            raise RuntimeError(
-                "Turbomole ground-state calculation failed. Check turbomole_exe.log."
-            )
+        await _run_ground_state(qm_input, node_runner, kwargs)
 
         if hyperpolarizability_requested(qm_input):
             wavelength_nm = hyperpolarizability_wavelength_nm(qm_input)
@@ -195,10 +277,12 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             or Path("./dscf.out").exists()
             or Path("./job.last").exists()
             or Path("./hyperpols").exists()
+            or Path("./vibspectrum").exists()
+            or Path("./aoforce.out").exists()
         ):
             raise RuntimeError(
                 "Turbomole run finished but key outputs are missing "
-                "(energy/ridft.out/dscf.out/job.last/hyperpols)."
+                "(energy/ridft.out/dscf.out/job.last/hyperpols/vibspectrum)."
             )
 
         node_runner.info("Parsing output files")
@@ -222,6 +306,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             energies=tout.energies,
             final_structure=tout.final_structure if tout.final_structure else qm_input.molecule,
             structures=molecule_list,
+            vibrational_frequencies=tout.vibrational_frequencies,
             task_status=TaskStatus.COMPLETED,
         )
         node_runner.result = qm_result

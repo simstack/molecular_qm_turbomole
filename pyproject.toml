@@ -16,6 +16,7 @@ dependencies = [
 
 [project.entry-points."simstack.modules"]
 molecular_qm_turbomole = "molecular_qm_turbomole"
+hyperpolarizibility = "hyperpolarizibility"
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -36,7 +37,7 @@ version-file = "molecular_qm_turbomole/_version.py"
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["molecular_qm_turbomole"]
+packages = ["molecular_qm_turbomole", "hyperpolarizibility"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "molecular_qm_turbomole/lib/scripts" = "molecular_qm_turbomole/lib/scripts"
