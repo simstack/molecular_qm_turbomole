@@ -316,20 +316,55 @@ def is_hyperpol_runner_dataset(dataset: Any) -> bool:
     return getattr(metadata, "field_name", None) == HYPERPOL_DATASET_TYPE
 
 
+def is_hyperpol_aggregate_dataset(dataset: Any) -> bool:
+    """True for rebuilt archive datasets, not per-run hyperpol_runner results."""
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_RECORDS_DATASET_NAME
+
+    name = getattr(dataset, "field_name", None)
+    return name in {HYPERPOL_RECORDS_DATASET_NAME, "hyperpol_runner.migrated"}
+
+
 def is_hyperpol_runner_template(template: Any) -> bool:
     from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
 
     return getattr(template, "dataset_type", None) == HYPERPOL_DATASET_TYPE
 
 
+def _iter_named_references(owner: Any, variable_name: str):
+    refs = getattr(owner, "results_references", None)
+    if refs is None and isinstance(owner, dict):
+        refs = owner.get("results_references")
+    for ref in refs or []:
+        if isinstance(ref, dict):
+            name = ref.get("variable_name")
+            reference = ref.get("reference")
+        else:
+            name = getattr(ref, "variable_name", None)
+            reference = getattr(ref, "reference", None)
+        if name == variable_name and reference is not None:
+            yield reference
+
+
+def dataset_reference_from_runner(runner: Any) -> Any:
+    return next(_iter_named_references(runner, "dataset"), None)
+
+
+def record_references_from_nodes(nodes: Sequence[Any]) -> List[Any]:
+    return [ref for node in nodes for ref in _iter_named_references(node, "record")]
+
+
 async def delete_hyperpol_runner_datasets(db, dry_run: bool = False) -> Tuple[int, int]:
-    """Drop stored hyperpol_runner DataSets and their shared metadata template."""
+    """Drop the rebuilt hyperpol_runner archive DataSet and its metadata template.
+
+    Per-run DataSets attached to finished ``hyperpol_runner`` nodes are left in
+    place so those node results can still load.
+    """
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadataTemplate
 
     deleted_datasets = 0
     for dataset in await db.find(DataSet):
-        if not is_hyperpol_runner_dataset(dataset):
+        if not is_hyperpol_aggregate_dataset(dataset):
             continue
         deleted_datasets += 1
         if not dry_run:
@@ -345,7 +380,13 @@ async def delete_hyperpol_runner_datasets(db, dry_run: bool = False) -> Tuple[in
     return deleted_datasets, deleted_templates
 
 
-def build_hyperpol_dataset_from_records(records: Sequence[Any]):
+def build_hyperpol_dataset_from_records(
+    records: Sequence[Any],
+    *,
+    field_name: Optional[str] = None,
+    formula: Optional[str] = None,
+    dataset_id: Any = None,
+):
     """Build a DataSet of the hyperpol_runner row shape without saving it."""
     from hyperpolarizibility.hyperpol_runner import (
         HYPERPOL_DATASET_TYPE,
@@ -355,13 +396,16 @@ def build_hyperpol_dataset_from_records(records: Sequence[Any]):
     from simstack.models.dataset import DataSet
     from simstack.models.dataset_metadata import DataSetMetadata
 
-    dataset = DataSet(
-        field_name=HYPERPOL_RECORDS_DATASET_NAME,
-        metadata=DataSetMetadata(
+    payload: Dict[str, Any] = {
+        "field_name": field_name or HYPERPOL_RECORDS_DATASET_NAME,
+        "metadata": DataSetMetadata(
             field_name=HYPERPOL_DATASET_TYPE,
-            data={"formula": "records"},
+            data={"formula": formula or "records"},
         ),
-    )
+    }
+    if dataset_id is not None:
+        payload["id"] = dataset_id
+    dataset = DataSet(**payload)
     added = 0
     for record in records:
         molecule = fill_molecule_labels(getattr(record, "molecule", None))
@@ -372,14 +416,75 @@ def build_hyperpol_dataset_from_records(records: Sequence[Any]):
     return dataset, added
 
 
+async def restore_missing_hyperpol_runner_datasets(db, dry_run: bool = False) -> int:
+    """Recreate deleted per-run DataSets using the ObjectIds finished runners still reference."""
+    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
+    from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+    from simstack.models.dataset import DataSet
+    from simstack.models.node_registry import NodeRegistry
+
+    restored = 0
+    runners = await db.find(NodeRegistry, NodeRegistry.name == "hyperpol_runner")
+    for runner in runners:
+        dataset_id = dataset_reference_from_runner(runner)
+        if dataset_id is None:
+            continue
+        existing = await db.find_one(DataSet, DataSet.id == dataset_id)
+        if existing is not None:
+            continue
+        children = await db.find(NodeRegistry, {"parent_ids": runner.id})
+        records = []
+        for record_id in record_references_from_nodes(children):
+            record = await db.find_one(HyperPolarizationRecord, HyperPolarizationRecord.id == record_id)
+            if record is not None:
+                records.append(record)
+        if not records:
+            logger.warning(
+                "Runner %s references missing DataSet %s and has no child HyperPolarizationRecord docs",
+                getattr(runner, "id", None),
+                dataset_id,
+            )
+            continue
+        molecule = fill_molecule_labels(getattr(records[0], "molecule", None))
+        section_name = molecule_section_name(molecule)
+        dataset, added = build_hyperpol_dataset_from_records(
+            records,
+            field_name=f"{HYPERPOL_DATASET_TYPE}.{section_name}",
+            formula=section_name,
+            dataset_id=dataset_id,
+        )
+        if dry_run:
+            logger.info(
+                "Would restore DataSet %s (%s row(s)) for hyperpol_runner %s",
+                dataset_id,
+                added,
+                getattr(runner, "id", None),
+            )
+            restored += 1
+            continue
+        await dataset.save(db)
+        if dataset.id != dataset_id:
+            raise RuntimeError(
+                f"Restored DataSet id {dataset.id} does not match runner reference {dataset_id}"
+            )
+        logger.info(
+            "Restored DataSet %s (%s row(s)) for hyperpol_runner %s",
+            dataset.id,
+            added,
+            getattr(runner, "id", None),
+        )
+        restored += 1
+    return restored
+
+
 async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False) -> int:
-    """Delete stale hyperpol_runner DataSets and rebuild one from HyperPolarizationRecord docs."""
+    """Rebuild the archive DataSet and restore missing per-run hyperpol_runner results."""
     from hyperpolarizibility.hyperpol_runner import HYPERPOL_RECORDS_DATASET_NAME
     from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
 
     deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db, dry_run=dry_run)
     logger.info(
-        "%s %s hyperpol_runner DataSet(s) and %s metadata template(s)",
+        "%s %s archive hyperpol_runner DataSet(s) and %s metadata template(s)",
         "Would delete" if dry_run else "Deleted",
         deleted_datasets,
         deleted_templates,
@@ -387,21 +492,26 @@ async def migrate_hyperpolarization_records_to_dataset(db, dry_run: bool = False
 
     records = await db.find(HyperPolarizationRecord)
     logger.info("Found %s HyperPolarizationRecord document(s) for Dataset migration", len(records))
-    if not records:
-        return 0
+    added = 0
+    if records:
+        if not dry_run:
+            for record in records:
+                molecule = fill_molecule_labels(getattr(record, "molecule", None))
+                if molecule is None:
+                    continue
+                molecule = await db.save(molecule)
+                record.molecule = molecule
+        dataset, added = build_hyperpol_dataset_from_records(records)
+        if dry_run:
+            logger.info("Would write %s Dataset row(s) to %s", added, HYPERPOL_RECORDS_DATASET_NAME)
+        else:
+            await dataset.save(db)
+            logger.info("Saved DataSet %s with %s row(s)", HYPERPOL_RECORDS_DATASET_NAME, added)
 
-    if not dry_run:
-        for record in records:
-            molecule = fill_molecule_labels(getattr(record, "molecule", None))
-            if molecule is None:
-                continue
-            molecule = await db.save(molecule)
-            record.molecule = molecule
-
-    dataset, added = build_hyperpol_dataset_from_records(records)
-    if dry_run:
-        logger.info("Would write %s Dataset row(s) to %s", added, HYPERPOL_RECORDS_DATASET_NAME)
-        return added
-    await dataset.save(db)
-    logger.info("Saved DataSet %s with %s row(s)", HYPERPOL_RECORDS_DATASET_NAME, added)
+    restored = await restore_missing_hyperpol_runner_datasets(db, dry_run=dry_run)
+    logger.info(
+        "%s %s finished hyperpol_runner DataSet(s)",
+        "Would restore" if dry_run else "Restored",
+        restored,
+    )
     return added

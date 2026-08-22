@@ -6,9 +6,12 @@ from molecular_qm_turbomole.lib.migrate_qm_input_docs import (
     as_basis_set_model_doc,
     as_dispersion_model_doc,
     build_hyperpol_dataset_from_records,
+    dataset_reference_from_runner,
     delete_hyperpol_runner_datasets,
+    is_hyperpol_aggregate_dataset,
     is_hyperpol_runner_dataset,
     is_hyperpol_runner_template,
+    record_references_from_nodes,
     record_row_name,
     upgrade_hyperpolarization_record_doc,
     upgrade_stored_document,
@@ -268,6 +271,31 @@ def test_is_hyperpol_runner_dataset_and_template():
     assert not is_hyperpol_runner_dataset(SimpleNamespace(metadata=None))
     assert is_hyperpol_runner_template(SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE))
     assert not is_hyperpol_runner_template(SimpleNamespace(dataset_type="other"))
+    assert is_hyperpol_aggregate_dataset(SimpleNamespace(field_name="hyperpol_runner.records"))
+    assert is_hyperpol_aggregate_dataset(SimpleNamespace(field_name="hyperpol_runner.migrated"))
+    assert not is_hyperpol_aggregate_dataset(SimpleNamespace(field_name="hyperpol_runner.H2O"))
+
+
+def test_dataset_and_record_references_from_nodes():
+    from types import SimpleNamespace
+
+    runner = SimpleNamespace(
+        results_references=[
+            SimpleNamespace(variable_name="files", reference="skip"),
+            SimpleNamespace(variable_name="dataset", reference="ds-1"),
+        ]
+    )
+    assert dataset_reference_from_runner(runner) == "ds-1"
+    children = [
+        SimpleNamespace(
+            results_references=[
+                SimpleNamespace(variable_name="record", reference="r1"),
+                SimpleNamespace(variable_name="result", reference="qm"),
+            ]
+        ),
+        {"results_references": [{"variable_name": "record", "reference": "r2"}]},
+    ]
+    assert record_references_from_nodes(children) == ["r1", "r2"]
 
 
 class _FakeDb:
@@ -309,12 +337,19 @@ async def test_delete_hyperpol_runner_datasets_drops_matching_docs_and_template(
 
     from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
 
-    keep = SimpleNamespace(metadata=SimpleNamespace(field_name="other"))
-    drop_ds = SimpleNamespace(metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE))
+    keep = SimpleNamespace(field_name="other", metadata=SimpleNamespace(field_name="other"))
+    keep_run = SimpleNamespace(
+        field_name="hyperpol_runner.H2O",
+        metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE),
+    )
+    drop_ds = SimpleNamespace(
+        field_name="hyperpol_runner.records",
+        metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE),
+    )
     drop_template = SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE)
     keep_template = SimpleNamespace(dataset_type="other")
     db = _FakeDb(
-        datasets=[keep, drop_ds],
+        datasets=[keep, keep_run, drop_ds],
         templates=[drop_template, keep_template],
     )
     deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db)
@@ -323,8 +358,10 @@ async def test_delete_hyperpol_runner_datasets_drops_matching_docs_and_template(
     assert drop_ds in db.deleted
     assert drop_template in db.deleted
     assert keep not in db.deleted
+    assert keep_run not in db.deleted
     assert keep_template not in db.deleted
-    assert db.datasets == [keep]
+    assert keep in db.datasets
+    assert keep_run in db.datasets
     assert db.templates == [keep_template]
 
 
@@ -334,7 +371,10 @@ async def test_delete_hyperpol_runner_datasets_dry_run_does_not_write():
 
     from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE
 
-    drop_ds = SimpleNamespace(metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE))
+    drop_ds = SimpleNamespace(
+        field_name="hyperpol_runner.records",
+        metadata=SimpleNamespace(field_name=HYPERPOL_DATASET_TYPE),
+    )
     drop_template = SimpleNamespace(dataset_type=HYPERPOL_DATASET_TYPE)
     db = _FakeDb(datasets=[drop_ds], templates=[drop_template])
     deleted_datasets, deleted_templates = await delete_hyperpol_runner_datasets(db, dry_run=True)
@@ -347,7 +387,6 @@ async def test_delete_hyperpol_runner_datasets_dry_run_does_not_write():
 def test_build_hyperpol_dataset_from_records_uses_formula_section_and_wavelength():
     from datetime import datetime, timezone
 
-    from hyperpolarizibility.hyperpol_runner import HYPERPOL_DATASET_TYPE, HYPERPOL_RECORDS_DATASET_NAME
     from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
     from molecular_qm_models.molecule import Atom, Molecule
     from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
@@ -376,11 +415,17 @@ def test_build_hyperpol_dataset_from_records_uses_formula_section_and_wavelength
         error=None,
     )
 
-    dataset, added = build_hyperpol_dataset_from_records([record])
+    dataset_id = ObjectId()
+    dataset, added = build_hyperpol_dataset_from_records(
+        [record],
+        field_name="hyperpol_runner.H2O",
+        formula="H2O",
+        dataset_id=dataset_id,
+    )
     assert added == 1
-    assert dataset.field_name == HYPERPOL_RECORDS_DATASET_NAME
-    assert dataset.metadata.field_name == HYPERPOL_DATASET_TYPE
-    assert dataset.metadata.data["formula"] == "records"
+    assert dataset.id == dataset_id
+    assert dataset.field_name == "hyperpol_runner.H2O"
+    assert dataset.metadata.data["formula"] == "H2O"
     assert "H2O" in dataset.sections
     row = dataset["H2O"][record_row_name(record.id)]
     assert isinstance(row["functional"], StringData)
