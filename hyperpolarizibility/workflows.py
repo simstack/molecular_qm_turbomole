@@ -461,6 +461,26 @@ class HyperPolarizationRecord(Model):
             data["field_name"] = cls.__name__
         return normalize_functional_and_dispersion(data)
 
+    @classmethod
+    def json_schema(cls, recursive=True):
+        schema = cleaned_json_schema(cls)
+        schema["title"] = cls.__name__
+        properties = schema.setdefault("properties", {})
+        properties["functional"] = {
+            "type": "string",
+            "enum": [item.value for item in FunctionalEnum],
+            "default": FunctionalEnum.B3LYP.value,
+            "title": "Functional",
+        }
+        return schema
+
+    @classmethod
+    def ui_schema(cls):
+        ui_schema = generate_ui_schema(cls)
+        ui_schema["field_name"] = {"ui:widget": "hidden"}
+        ui_schema.setdefault("functional", {})["ui:widget"] = "select"
+        return ui_schema
+
 
 @node(parameters=workflow_parameters)
 async def hyperpolarizibility(

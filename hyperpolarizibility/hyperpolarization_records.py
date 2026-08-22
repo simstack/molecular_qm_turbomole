@@ -12,18 +12,27 @@ from simstack.models.simple_table import SimpleTable
 _table_parameters = Parameters(resource="self", queue="default", force_rerun=True)
 
 
-def _functional_label(record: HyperPolarizationRecord) -> str:
-    functional = getattr(record, "functional", None)
-    value = getattr(functional, "functional", None)
+def _scalar_label(value, nested_attr: str) -> str:
     if value is None:
         return "N/A"
-    return str(getattr(value, "value", value))
+    if isinstance(value, dict):
+        nested = value.get(nested_attr)
+        if nested is not None:
+            value = nested
+    else:
+        nested = getattr(value, nested_attr, None)
+        if nested is not None:
+            value = nested
+    text = str(getattr(value, "value", value) or "").strip()
+    return text or "N/A"
+
+
+def _functional_label(record: HyperPolarizationRecord) -> str:
+    return _scalar_label(getattr(record, "functional", None), "functional")
 
 
 def _basis_label(record: HyperPolarizationRecord) -> str:
-    basis_set = getattr(record, "basis_set", None)
-    value = getattr(basis_set, "basis_set", None)
-    return str(value) if value else "N/A"
+    return _scalar_label(getattr(record, "basis_set", None), "basis_set")
 
 
 @node(parameters=_table_parameters)

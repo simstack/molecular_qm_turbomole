@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from hyperpolarizibility.hyperpolarization_records import _basis_label, _functional_label
 from hyperpolarizibility.workflows import (
     HyperPolarizationRecord,
     HyperpolarizabilitySettings,
@@ -16,7 +17,7 @@ from hyperpolarizibility.workflows import (
     beta_zzz_by_pair,
     child_exception_text,
 )
-from molecular_qm_models.density_functional import FunctionalEnum
+from molecular_qm_models.density_functional import Functional, FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.env import build_ground_state_script
@@ -223,6 +224,32 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     )
     default_doc = defaulted.model_dump_doc()
     assert default_doc["dispersion_correction"]["value"] == DispersionCorrectionEnum.NONE.value
+
+
+def test_hyperpolarization_record_schema_inlines_functional_enum():
+    schema = HyperPolarizationRecord.json_schema()
+    ui = HyperPolarizationRecord.ui_schema()
+    functional = schema["properties"]["functional"]
+    assert functional["type"] == "string"
+    assert "B3LYP" in functional["enum"]
+    assert "CAM-B3LYP" in functional["enum"]
+    assert "$ref" not in functional
+    assert ui["functional"]["ui:widget"] == "select"
+
+
+def test_functional_label_reads_enum_and_legacy_nested_functional():
+    molecule = _water()
+    record = HyperPolarizationRecord(
+        molecule=molecule,
+        functional=FunctionalEnum.CAM_B3LYP,
+        basis_set=TurbomoleBasisSet2(basis_set="def2-TZVP"),
+        started_at=datetime.now(timezone.utc),
+    )
+    assert _functional_label(record) == "CAM-B3LYP"
+    assert _basis_label(record) == "def2-TZVP"
+
+    nested = type("LegacyRecord", (), {"functional": Functional(functional=FunctionalEnum.PBE)})()
+    assert _functional_label(nested) == "PBE"
 
 
 def test_child_exception_text_prefers_real_message_over_generic_failed_status():
