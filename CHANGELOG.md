@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v0.7.0 (2026-08-23)
+
+### Chores
+
+- Enhance hyperpolarization dataset management and restore functionality
+  ([`c2f4f1f`](https://github.com/simstack/molecular_qm_turbomole/commit/c2f4f1ff1b1997f34d7d9e17ec8d4efdaa76f455))
+
+### Features
+
+- Add functionality to collect Turbomole restart and info files
+  ([`497664b`](https://github.com/simstack/molecular_qm_turbomole/commit/497664bc70a911066c6934d89e30f134e6c9416c))
+
+### Refactoring
+
+- Remove unused hyperpolarizability table and update dataset row construction
+  ([`aff03ee`](https://github.com/simstack/molecular_qm_turbomole/commit/aff03ee568294a92becb333cd3b63c7c1a53efae))
+
+- Rename DispersionCorrection to TurbomoleDispersionCorrection across models and tests
+  ([`d08a619`](https://github.com/simstack/molecular_qm_turbomole/commit/d08a619427751a9e554de6635a0c2ea9f370cf1b))
+
+
 ## v0.6.0 (2026-08-22)
 
 ### Features
