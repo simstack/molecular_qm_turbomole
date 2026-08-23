@@ -180,9 +180,8 @@ class TurbomoleBasisSet2(EmbeddedModel):
 @simstack_model
 class TurbomoleQMInput2(Model):
     """
-    Clean TURBOMOLE input for turbomole2.
+    TURBOMOLE input for turbomole2.
 
-    Field surface mirrors the historical TurbomoleQMInput (without GW).
     Functional is a TurbomoleFunctional; DispersionCorrection is a required
     sibling field (use NONE to turn it off). Solvent and hyperpolarizability
     extra fields are hidden in the UI until the matching mode is selected;

@@ -38,7 +38,7 @@ HYPERPOL_MODE_ALIASES = {
     "dynamic": "dynamic",
 }
 
-QM_INPUT2_TOP_LEVEL_KEYS = set(TurbomoleQMInput2.model_fields) | {"_id"}
+QM_INPUT2_TOP_LEVEL_KEYS = set(TurbomoleQMInput2.model_fields) | {"_id", "field_name"}
 BASIS_SET_KEYS = {"field_name", "basis_set"}
 FUNCTIONAL_KEYS = {"field_name", "functional"}
 DISPERSION_KEYS = {"field_name", "value"}

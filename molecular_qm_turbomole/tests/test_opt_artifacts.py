@@ -12,7 +12,12 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
     persist_opt_charts,
 )
 from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse_gradient_history
-from molecular_qm_turbomole.nodes.turbomole2 import _run_optimization_chunks, _with_runner_output
+from molecular_qm_turbomole.nodes.turbomole2 import (
+    _collect_turbomole_info_files,
+    _collect_turbomole_restart_files,
+    _run_optimization_chunks,
+    _with_runner_output,
+)
 
 
 def _write_energy(directory, n_cycles: int) -> None:
@@ -400,3 +405,100 @@ async def test_run_optimization_chunks_includes_subprocess_output_on_running_mar
     with pytest.raises(RuntimeError, match="jobex did not end properly") as exc_info:
         await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
     assert "dscf ended abnormally" in str(exc_info.value)
+
+
+def test_collect_turbomole_info_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    # Create info files
+    (tmp_path / "job.last").write_text("job last content\n", encoding="utf-8")
+    (tmp_path / "job.1").write_text("job 1 content\n", encoding="utf-8")
+    (tmp_path / "job.2").write_text("job 2 content\n", encoding="utf-8")
+    (tmp_path / "job.start").write_text("job start content\n", encoding="utf-8")
+    (tmp_path / "turbomole_define.log").write_text("define log\n", encoding="utf-8")
+    (tmp_path / "turbomole_exe_c010.log").write_text("opt chunk log\n", encoding="utf-8")
+    (tmp_path / "turbomole_exe.log").write_text("exe log\n", encoding="utf-8")
+    (tmp_path / "not.converged").write_text("not converged\n", encoding="utf-8")
+    (tmp_path / "GEO_OPT_FAILED").write_text("failed\n", encoding="utf-8")
+    (tmp_path / "statistics").write_text("stats\n", encoding="utf-8")
+    (tmp_path / "define.inp").write_text("define inp\n", encoding="utf-8")
+    (tmp_path / "define.out").write_text("define out\n", encoding="utf-8")
+    (tmp_path / "jobex.out").write_text("jobex out\n", encoding="utf-8")
+
+    # Create restart files (which must NOT be added to info_files)
+    (tmp_path / "control").write_text("$title test\n", encoding="utf-8")
+    (tmp_path / "coord").write_text("$coord\n$end\n", encoding="utf-8")
+    (tmp_path / "basis").write_text("$basis\n$end\n", encoding="utf-8")
+    (tmp_path / "auxbasis").write_text("$auxbasis\n$end\n", encoding="utf-8")
+    (tmp_path / "mos").write_text("$scfmo\n$end\n", encoding="utf-8")
+    (tmp_path / "energy").write_text("$energy\n$end\n", encoding="utf-8")
+    (tmp_path / "gradient").write_text("$grad\n$end\n", encoding="utf-8")
+
+    node_runner = SimpleNamespace(info_files=[], info=MagicMock(), warning=MagicMock())
+    _collect_turbomole_info_files(node_runner)
+
+    collected_names = {fs.name for fs in node_runner.info_files}
+
+    # Info files that must be present
+    assert "job.last" in collected_names
+    assert "job.1" in collected_names
+    assert "job.2" in collected_names
+    assert "job.start" in collected_names
+    assert "turbomole_define.log" in collected_names
+    assert "turbomole_exe_c010.log" in collected_names
+    assert "turbomole_exe.log" in collected_names
+    assert "not.converged" in collected_names
+    assert "GEO_OPT_FAILED" in collected_names
+    assert "statistics" in collected_names
+    assert "define.inp" in collected_names
+    assert "define.out" in collected_names
+    assert "jobex.out" in collected_names
+
+    # Restart files must NOT be in info_files
+    for restart_name in ["control", "coord", "basis", "auxbasis", "mos", "energy", "gradient"]:
+        assert restart_name not in collected_names
+
+
+@pytest.mark.asyncio
+async def test_collect_turbomole_restart_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    # Create restart files
+    (tmp_path / "control").write_text("$title test\n", encoding="utf-8")
+    (tmp_path / "coord").write_text("$coord\n$end\n", encoding="utf-8")
+    (tmp_path / "basis").write_text("$basis\n$end\n", encoding="utf-8")
+    (tmp_path / "auxbasis").write_text("$auxbasis\n$end\n", encoding="utf-8")
+    (tmp_path / "mos").write_text("$scfmo\n$end\n", encoding="utf-8")
+    (tmp_path / "energy").write_text("$energy\n$end\n", encoding="utf-8")
+    (tmp_path / "gradient").write_text("$grad\n$end\n", encoding="utf-8")
+    (tmp_path / "hessapprox").write_text("$hess\n$end\n", encoding="utf-8")
+    (tmp_path / "optinfo").write_text("$optinfo\n$end\n", encoding="utf-8")
+    (tmp_path / "final_geometry.xyz").write_text("3\n\nC 0 0 0\n", encoding="utf-8")
+
+    # Create info files (which must NOT be added to files)
+    (tmp_path / "job.last").write_text("job last\n", encoding="utf-8")
+    (tmp_path / "turbomole_exe_c010.log").write_text("chunk log\n", encoding="utf-8")
+
+    node_runner = SimpleNamespace(files=[], info=MagicMock(), warning=MagicMock())
+    qm_result = SimpleNamespace(files=[])
+
+    await _collect_turbomole_restart_files(node_runner, qm_result)
+
+    runner_files = {fs.name for fs in node_runner.files}
+    result_files = {fs.name for fs in qm_result.files}
+
+    assert runner_files == result_files
+    assert "control" in runner_files
+    assert "coord" in runner_files
+    assert "basis" in runner_files
+    assert "auxbasis" in runner_files
+    assert "mos" in runner_files
+    assert "energy" in runner_files
+    assert "gradient" in runner_files
+    assert "hessapprox" in runner_files
+    assert "optinfo" in runner_files
+    assert "final_geometry.xyz" in runner_files
+
+    # Info files must NOT be in runner.files
+    assert "job.last" not in runner_files
+    assert "turbomole_exe_c010.log" not in runner_files

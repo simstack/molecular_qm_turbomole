@@ -2,6 +2,7 @@ import logging
 import math
 import re
 from pathlib import Path
+from typing import Optional
 
 from molecular_qm_models.molecule import MoleculeList
 from molecular_qm_models.qm_result import QMResult
@@ -84,22 +85,52 @@ parameters = Parameters(
     force_rerun=True,
 )
 
-OUTPUT_FILES = (
+TURBOMOLE_RESTART_FILES = (
     "control",
     "coord",
+    "basis",
+    "auxbasis",
+    "mos",
+    "alpha",
+    "beta",
     "energy",
+    "gradient",
+    "hessapprox",
+    "hessian",
+    "optinfo",
+    "optcontrol",
+    "final_geometry.xyz",
+)
+
+OUTPUT_FILES = TURBOMOLE_RESTART_FILES
+
+TURBOMOLE_INFO_STATIC_FILES = (
     "define.inp",
     "define.out",
+    "turbomole_define.log",
+    "turbomole_response.log",
+    "turbomole_exe.log",
+    "jobex.out",
+    "job.start",
+    "job.last",
+    "not.converged",
+    "GEO_OPT_FAILED",
+    "GEO_OPT_CONVERGED",
+    "GEO_OPT_RUNNING",
+    "statistics",
     "ridft.out",
     "dscf.out",
-    "jobex.out",
-    "job.last",
-    "final_geometry.xyz",
-    "gradient",
     "aoforce.out",
     "vibspectrum",
     "escf.out",
     "hyperpols",
+)
+
+TURBOMOLE_INFO_PATTERNS = (
+    "job.*",
+    "turbomole_*.log",
+    "turbomole_exe*.log",
+    "GEO_OPT_*",
 )
 
 
@@ -127,6 +158,80 @@ def _validate_request(qm_input: TurbomoleQMInput2) -> None:
 
 def _collect_output_files() -> list[str]:
     return [name for name in OUTPUT_FILES if Path(name).exists()]
+
+
+async def _collect_turbomole_restart_files(
+    node_runner, qm_result: Optional[QMResult] = None
+) -> None:
+    """Attach Turbomole restart files to node_runner.files and qm_result.files."""
+    if not hasattr(node_runner, "files") or node_runner.files is None:
+        node_runner.files = []
+
+    already_runner = {getattr(fs, "name", None) for fs in node_runner.files}
+    already_result = (
+        {getattr(fs, "name", None) for fs in getattr(qm_result, "files", []) or []}
+        if qm_result is not None
+        else set()
+    )
+
+    for fname in TURBOMOLE_RESTART_FILES:
+        p = Path(fname)
+        if not p.is_file():
+            continue
+        try:
+            file_stack = FileStack.from_local_file(
+                str(p), in_memory=True, is_hashable=True, secure_source=True
+            )
+            try:
+                if context.db is not None:
+                    await context.db.save(file_stack)
+            except Exception:
+                pass
+            if fname not in already_runner:
+                node_runner.files.append(file_stack)
+                already_runner.add(fname)
+                node_runner.info(f"Attached Turbomole restart file: {fname}")
+            if qm_result is not None and fname not in already_result:
+                qm_result.files.append(file_stack)
+                already_result.add(fname)
+        except Exception as e:
+            node_runner.warning(f"Failed to attach Turbomole restart file {fname}: {e}")
+
+
+def _collect_turbomole_info_files(node_runner) -> None:
+    """Attach Turbomole info files (job.last, all job.* files, logs, markers) to node_runner.info_files."""
+    if not hasattr(node_runner, "info_files") or node_runner.info_files is None:
+        node_runner.info_files = []
+
+    already = {getattr(fs, "name", None) for fs in node_runner.info_files}
+    restart_names = set(TURBOMOLE_RESTART_FILES)
+
+    matched_files = set()
+    for fname in TURBOMOLE_INFO_STATIC_FILES:
+        p = Path(fname)
+        if p.is_file():
+            matched_files.add(p)
+
+    for pattern in TURBOMOLE_INFO_PATTERNS:
+        for p in Path(".").glob(pattern):
+            if p.is_file():
+                matched_files.add(p)
+
+    for p in sorted(matched_files, key=lambda path: str(path.name)):
+        fname = p.name
+        # Exclude restart files from info_files
+        if fname in restart_names or fname in already:
+            continue
+        try:
+            node_runner.info_files.append(
+                FileStack.from_local_file(
+                    str(p), in_memory=True, is_hashable=True, secure_source=True
+                )
+            )
+            already.add(fname)
+            node_runner.info(f"Attached Turbomole info file: {fname}")
+        except Exception as e:
+            node_runner.warning(f"Failed to attach Turbomole info file {fname}: {e}")
 
 
 async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
@@ -363,16 +468,13 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         )
         node_runner.result = qm_result
 
-        for out_file in _collect_output_files():
-            file_stack = FileStack.from_local_file(
-                out_file, in_memory=True, is_hashable=True, secure_source=True
-            )
-            await context.db.save(file_stack)
-            qm_result.files.append(file_stack)
-
+        await _collect_turbomole_restart_files(node_runner, qm_result)
+        _collect_turbomole_info_files(node_runner)
         node_runner.info(
             f"turbomole2 completed successfully with energy: {tout.final_energy}"
         )
         return node_runner.succeed()
     except Exception as exc:
+        await _collect_turbomole_restart_files(node_runner)
+        _collect_turbomole_info_files(node_runner)
         _fail(node_runner, _with_runner_output(node_runner, f"Turbomole calculation failed: {exc}"))

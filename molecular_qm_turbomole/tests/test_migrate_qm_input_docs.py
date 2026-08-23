@@ -111,7 +111,7 @@ def test_already_migrated_qm_input2_is_unchanged():
         "open_shell_calculation": False,
         "basis_set": {"field_name": "TurbomoleBasisSet2", "basis_set": "def2-SVP"},
         "functional": {"field_name": "TurbomoleFunctional", "functional": "b3-lyp"},
-        "dispersion_correction": {"field_name": "DispersionCorrection", "value": "NONE"},
+        "dispersion_correction": {"field_name": "TurbomoleDispersionCorrection", "value": "NONE"},
         "gradients": False,
         "optimization": False,
         "max_opt_cycles": 100,
