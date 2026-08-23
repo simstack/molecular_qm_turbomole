@@ -7,7 +7,7 @@ from pydantic import model_validator
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctional
 from molecular_qm_turbomole.models.turbomole_input import (
-    DispersionCorrection,
+    TurbomoleDispersionCorrection,
     TurbomoleBasisSet2,
     normalize_functional_and_dispersion,
 )
@@ -22,7 +22,7 @@ class HyperPolarizationRecord(Model):
     field_name: str = "HyperPolarizationRecord"
     molecule: Molecule = Reference()
     functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
-    dispersion_correction: DispersionCorrection = Field(default_factory=DispersionCorrection)
+    dispersion_correction: TurbomoleDispersionCorrection = Field(default_factory=TurbomoleDispersionCorrection)
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     grids_used: List[str] = Field(default_factory=list)
     started_at: datetime

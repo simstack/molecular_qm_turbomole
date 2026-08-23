@@ -7,7 +7,7 @@ from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
-    DispersionCorrection,
+    TurbomoleDispersionCorrection,
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
@@ -28,7 +28,7 @@ def _qm_input(**overrides) -> TurbomoleQMInput2:
         "molecule": _water(),
         "functional": TurbomoleFunctionalEnum.B3_LYP,
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
-        "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.NONE),
+        "dispersion_correction": TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.NONE),
     }
     payload.update(overrides)
     return TurbomoleQMInput2(**payload)
@@ -169,7 +169,7 @@ def test_input_writer_emits_define_and_coord(tmp_path):
 
 def test_input_writer_emits_top_level_dispersion(tmp_path):
     qm_input = _qm_input(
-        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ)
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3BJ)
     )
     define = tmp_path / "define.inp"
     TurbomoleInputWriter(qm_input).write_define_input(str(define))
@@ -181,7 +181,7 @@ def test_input_writer_emits_top_level_dispersion(tmp_path):
 def test_dispersion_correction_is_independent_of_functional():
     model = _qm_input(
         functional=TurbomoleFunctionalEnum.B3_LYP,
-        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D4),
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D4),
     )
     assert model.dispersion_enum() == DispersionCorrectionEnum.D4
     doc = model.model_dump_doc()

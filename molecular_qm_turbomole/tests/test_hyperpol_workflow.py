@@ -30,7 +30,7 @@ from molecular_qm_turbomole.lib.env import build_ground_state_script
 from molecular_qm_turbomole.lib.output_parser import parse_vibspectrum_file
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
-    DispersionCorrection,
+    TurbomoleDispersionCorrection,
     HyperpolarizabilityModeEnum,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
@@ -219,7 +219,7 @@ def test_hyperpolarization_record_dump_doc_accepts_dispersion_correction():
     record = HyperPolarizationRecord(
         molecule=molecule,
         functional=TurbomoleFunctionalEnum.B3_LYP,
-        dispersion_correction=DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
         started_at=datetime.now(timezone.utc),
     )
     doc = record.model_dump_doc()

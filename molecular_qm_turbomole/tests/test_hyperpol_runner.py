@@ -14,7 +14,7 @@ from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
-    DispersionCorrection,
+    TurbomoleDispersionCorrection,
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
@@ -38,7 +38,7 @@ def _qm_input(**overrides) -> TurbomoleQMInput2:
         "molecule": _water(),
         "name": "water",
         "functional": TurbomoleFunctionalEnum.B3_LYP,
-        "dispersion_correction": DispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+        "dispersion_correction": TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
         "basis_set": TurbomoleBasisSet2(basis_set="def2-SVP"),
         "solvent_mode": SolventModeEnum.IMPLICIT,
         "solvent": "chloroform",

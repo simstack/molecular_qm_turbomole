@@ -19,7 +19,7 @@ from molecular_qm_turbomole.models.turbomole_functional import (
 )
 from molecular_qm_turbomole.models.turbomole_input import (
     TURBOMOLE_DEFAULT_BASIS_SET,
-    DispersionCorrection,
+    TurbomoleDispersionCorrection,
     TurbomoleBasisSet2,
     TurbomoleQMInput2,
 )
@@ -91,7 +91,7 @@ def as_dispersion_model_doc(raw: Any) -> Dict[str, Any]:
     else:
         value = _enum_value(raw, "NONE")
     return {
-        "field_name": DispersionCorrection.__name__,
+        "field_name": TurbomoleDispersionCorrection.__name__,
         "value": value,
     }
 

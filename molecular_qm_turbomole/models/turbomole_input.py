@@ -107,7 +107,7 @@ def normalize_functional_and_dispersion(data: dict) -> dict:
 
 
 @simstack_model
-class DispersionCorrection(EmbeddedModel):
+class TurbomoleDispersionCorrection(EmbeddedModel):
     """Dispersion correction for TURBOMOLE jobs, including non-DFT methods."""
 
     field_name: str = "DispersionCorrection"
@@ -234,8 +234,8 @@ class TurbomoleQMInput2(Model):
     )
     basis_set: TurbomoleBasisSet2 = Field(default_factory=TurbomoleBasisSet2)
     functional: TurbomoleFunctional = Field(default_factory=TurbomoleFunctional)
-    dispersion_correction: DispersionCorrection = Field(
-        default_factory=DispersionCorrection,
+    dispersion_correction: TurbomoleDispersionCorrection = Field(
+        default_factory=TurbomoleDispersionCorrection,
         json_schema_extra={
             "description": (
                 "Dispersion correction for the calculation. Independent of the "
