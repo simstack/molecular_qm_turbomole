@@ -1,5 +1,4 @@
-active_dirs = ["applications",
-    "examples",
+active_dirs = [
     "molecular_qm_models",
     "molecular_qm_util",
     "molecular_qm_psi4",
