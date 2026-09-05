@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v0.8.0 (2026-09-05)
+
+### Chores
+
+- Simplify active_dirs configuration by removing unused entries
+  ([`48538fe`](https://github.com/simstack/molecular_qm_turbomole/commit/48538fe1294c02bb8cb7c3b62dc8b499372b6702))
+
+- Update dependencies and add upgrade script
+  ([`8b611d7`](https://github.com/simstack/molecular_qm_turbomole/commit/8b611d7c032efb20a814ce92ec823a3fcb53d830))
+
+- Update simstack and molecular_qm_util references in pyproject.toml
+  ([`7dfe18b`](https://github.com/simstack/molecular_qm_turbomole/commit/7dfe18b11f5f3628db6965aebe8d749a49567248))
+
+### Features
+
+- Add timing and heartbeat tracking for Turbomole subprocesses
+  ([`1cde310`](https://github.com/simstack/molecular_qm_turbomole/commit/1cde310dd301d654764dd1e9c99566e32076483e))
+
+
 ## v0.7.0 (2026-08-23)
 
 ### Chores
