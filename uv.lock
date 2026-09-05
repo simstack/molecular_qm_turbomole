@@ -10,9 +10,9 @@ resolution-markers = [
 constraints = [{ name = "numpy", specifier = "<2.5.0" }]
 overrides = [
     { name = "molecular-qm-models", git = "https://github.com/simstack/molecular_qm_models.git" },
-    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww" },
+    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git" },
     { name = "numpy", specifier = "<2.5.0" },
-    { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=celso-simstack" },
+    { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=ww%2Fnew-features" },
 ]
 
 [[package]]
@@ -99,11 +99,12 @@ wheels = [
 
 [[package]]
 name = "molecular-qm-models"
-version = "0.1.0"
-source = { git = "https://github.com/simstack/molecular_qm_models.git#72f8dcb49f17214d8899c6a80fb8fcfc2063074c" }
+version = "0.5.1.dev1+g52f19e061"
+source = { git = "https://github.com/simstack/molecular_qm_models.git#52f19e061ebe084e7f2519ab0250b2f294d23352" }
 dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "simstack" },
 ]
 
 [[package]]
@@ -125,9 +126,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "molecular-qm-models", git = "https://github.com/simstack/molecular_qm_models.git" },
-    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww" },
+    { name = "molecular-qm-util", git = "https://github.com/simstack/molecular_qm_util.git" },
     { name = "openbabel-wheel", specifier = ">=3.1.1.23" },
-    { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=celso-simstack" },
+    { name = "simstack", git = "https://github.com/simstack/simstack.git?rev=ww%2Fnew-features" },
 ]
 
 [package.metadata.requires-dev]
@@ -138,13 +139,19 @@ dev = [
 
 [[package]]
 name = "molecular-qm-util"
-version = "0.1.0"
-source = { git = "https://github.com/simstack/molecular_qm_util.git?rev=develop-ww#61c4fa1d69e3894bb4a9cbbf8e31a13596fbe7a5" }
+version = "0.4.1.dev1+gb685352db"
+source = { git = "https://github.com/simstack/molecular_qm_util.git#b685352dbbb2b2dadf066f8139902a90e95fa951" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "cirpy" },
     { name = "molecular-qm-models" },
+    { name = "numpy" },
+    { name = "odmantic" },
+    { name = "openbabel-wheel" },
     { name = "pubchempy" },
+    { name = "pytest-asyncio" },
+    { name = "rdkit" },
+    { name = "simstack" },
 ]
 
 [[package]]
@@ -255,6 +262,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/92/5d/be23854a73fda69f1dbdda7bc10fbd6f930bd1fa87aaec389f00c901c1e8/pandas_stubs-2.3.3.260113.tar.gz", hash = "sha256:076e3724bcaa73de78932b012ec64b3010463d377fa63116f4e6850643d93800", size = 116131, upload-time = "2026-01-13T22:30:16.704Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d1/c6/df1fe324248424f77b89371116dab5243db7f052c32cc9fe7442ad9c5f75/pandas_stubs-2.3.3.260113-py3-none-any.whl", hash = "sha256:ec070b5c576e1badf12544ae50385872f0631fc35d99d00dc598c2954ec564d3", size = 168246, upload-time = "2026-01-13T22:30:15.244Z" },
+]
+
+[[package]]
+name = "pillow"
+version = "12.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/3d/bb7fca845737cf9d7dbde16ed1843984665ff2e0a518f5db43e77ec540b9/pillow-12.3.0.tar.gz", hash = "sha256:3b8182a766685eaa002637e28b4ec8d6b18819a0c71f579bf0dbaa5830297cce", size = 47025035, upload-time = "2026-07-01T11:56:38.965Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/bf/fb3ebff8ddcb76aac5a01389251bbbb9519922a9b520d8247c1ca864a25d/pillow-12.3.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:ba09209fbe443b4acccebe845d8a138b89a8f4fbaeedd44953490b5315d5e965", size = 5345969, upload-time = "2026-07-01T11:54:06.397Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/66/9a386a92561f402389a4fc70c18838bf6d35eb5eb5c6850b4b2dc64f5048/pillow-12.3.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ffd0c5368496f41b0944be820fcb7a838aa6e623d250b01acf2643939c3f99d7", size = 4780323, upload-time = "2026-07-01T11:54:09.351Z" },
+    { url = "https://files.pythonhosted.org/packages/25/27/ac8f99618ffd3dde21db0f4d4b1d2ab00c0880595bfd17df103f7f39fd0c/pillow-12.3.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d9c7f76c0673154f044e9d78c8655fb4213f6ca31a836df48b40fe5d187717b9", size = 6266838, upload-time = "2026-07-01T11:54:11.71Z" },
+    { url = "https://files.pythonhosted.org/packages/84/21/a35af28dcc61f37ed850a2d64c65c701321dfbf25085e469d5559360cbbf/pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91", size = 6940830, upload-time = "2026-07-01T11:54:13.732Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/51/8b08617af3ad95e33ce6d7dd2c99ed6c8298f7fb131636303956be022e25/pillow-12.3.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:e491916b378fba47242221bb9ead245211b70d504f495d105d17b14a24b4907c", size = 6344383, upload-time = "2026-07-01T11:54:15.756Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/72/cf78ac9780bb93c28328f408973845a309d4d145041665f734572ced1b52/pillow-12.3.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:0dd2064cbc55aaec028ef5fbb60fa47bb6c3e7918e07ff17935284b227a9d2df", size = 7052934, upload-time = "2026-07-01T11:54:17.721Z" },
+    { url = "https://files.pythonhosted.org/packages/20/20/25e0f4dc178a6bc0696793720055519a0de89e7661dae886992decbd2f81/pillow-12.3.0-cp312-cp312-win32.whl", hash = "sha256:dbce0b29841537a2fa4a214c2bbf14de3587c9680caa9b4e217568472490b28f", size = 6472684, upload-time = "2026-07-01T11:54:19.839Z" },
+    { url = "https://files.pythonhosted.org/packages/45/89/da2f7971a317f83d807fdd4065c0af40208e59e692cc43d315a71a0e96d1/pillow-12.3.0-cp312-cp312-win_amd64.whl", hash = "sha256:a2b55dd6b2a4c4b7d87ffa56bdb33fdc5fdb9a462173861a7bc097f17d91cb09", size = 7227137, upload-time = "2026-07-01T11:54:22.025Z" },
+    { url = "https://files.pythonhosted.org/packages/de/47/4845a0a6c0dbf1db8456bd9fc791f13c5ced7ced20606d08a0aacfd25b49/pillow-12.3.0-cp312-cp312-win_arm64.whl", hash = "sha256:331b624368d4f1d069149002f25f44bc61c8919ce8ddb3c45bdad8f6e2d89510", size = 2568267, upload-time = "2026-07-01T11:54:24.051Z" },
 ]
 
 [[package]]
@@ -401,9 +425,24 @@ wheels = [
 ]
 
 [[package]]
+name = "rdkit"
+version = "2026.3.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pillow" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/12/58/4e1a050773da8359067e45fc9c1706f43ca9c085b742fbb8fd512eb9dfe0/rdkit-2026.3.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:b490da262688b9b16528d592752ab7838d4df4d7ffaacdb3c42d07e769a97552", size = 30281966, upload-time = "2026-09-03T20:09:37.391Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/88/4c7e08db7412f383c34f490e972843b4458326e0d0548cf4e38c37b82522/rdkit-2026.3.6-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:16d446583b7bac24b018a424bb24fd515c625f7bad4171d6aa46993a3e2f9aa0", size = 36559431, upload-time = "2026-09-03T20:09:40.876Z" },
+    { url = "https://files.pythonhosted.org/packages/99/1c/368b4b179295a76d773cadcc30da3afccbf1123e648e28e7dc0de6d61fe2/rdkit-2026.3.6-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:9f97b58f1962df73bdacf44347bfa013f4fcb9896e049f98af2183e70e7aab46", size = 38104228, upload-time = "2026-09-03T20:09:45.297Z" },
+    { url = "https://files.pythonhosted.org/packages/65/ca/39e0d15cbb7f19fda02fbb2c530f0292271d017209af4030eb6e7640ea15/rdkit-2026.3.6-cp312-cp312-win_amd64.whl", hash = "sha256:740f2015d07426a9d3ee98cdda2dbb028b84b35aca3edeff0dcb75294512d692", size = 24959768, upload-time = "2026-09-03T20:09:49.518Z" },
+]
+
+[[package]]
 name = "simstack"
-version = "2.1.0.dev4"
-source = { git = "https://github.com/simstack/simstack.git?rev=celso-simstack#340141ae4710c2f99f9a0d12ed121349cc64a58e" }
+version = "2.1.0.dev151"
+source = { git = "https://github.com/simstack/simstack.git?rev=ww%2Fnew-features#42d5d3772ebf4050273231e98fc9f5047a7d7beb" }
 dependencies = [
     { name = "cloudpickle" },
     { name = "coolname" },
