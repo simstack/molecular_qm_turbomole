@@ -20,6 +20,7 @@ from molecular_qm_turbomole.lib.env import (
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OPT_CHART_INTERVAL,
     OptimizationChartTracker,
+    cleanup_opt_snapshots,
     inspect_geometry_optimization,
 )
 from molecular_qm_turbomole.lib.optimization_timing import attach_optimizer_timings
@@ -317,6 +318,7 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
             # energy-file length as the cycle counter: jobex `-c 10` often
             # leaves 11 energy records (initial SCF + 10 opt cycles).
             await tracker.maybe_flush(force=True)
+            await tracker.maybe_snapshot(qm_input, TURBOMOLE_RESTART_FILES)
             if tracker.latest_step:
                 node_runner.info(
                     f"Wrote optimization chart artifacts after jobex cycles "
@@ -368,7 +370,7 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
     return tracker
 
 
-async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
+async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict):
     if qm_input.optimization:
         tracker = await _run_optimization_chunks(qm_input, node_runner, kwargs)
         if qm_input.frequencies:
@@ -393,7 +395,7 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
                         "Turbomole frequency calculation failed. Check turbomole_aoforce.log.",
                     )
                 )
-        return
+        return tracker
 
     run_script = prepend_tm_env(
         build_ground_state_script(
@@ -421,6 +423,7 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
                 "Turbomole ground-state calculation failed. Check turbomole_exe.log.",
             )
         )
+    return None
 
 
 @node(parameters=parameters)
@@ -482,7 +485,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 + ", ".join(group[0].split()[0] for group in appended)
             )
 
-        await _run_ground_state(qm_input, node_runner, kwargs)
+        tracker = await _run_ground_state(qm_input, node_runner, kwargs)
 
         if hyperpolarizability_requested(qm_input):
             wavelength_nm = hyperpolarizability_wavelength_nm(qm_input)
@@ -559,6 +562,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
 
         await _collect_turbomole_restart_files(node_runner, qm_result)
         _collect_turbomole_info_files(node_runner)
+        await cleanup_opt_snapshots(getattr(tracker, "snapshots", None), kwargs)
         node_runner.info(
             f"turbomole2 completed successfully with energy: {tout.final_energy}"
         )

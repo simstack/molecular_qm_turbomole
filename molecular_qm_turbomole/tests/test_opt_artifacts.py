@@ -10,8 +10,12 @@ from odmantic import ObjectId
 from molecular_qm_turbomole.lib.env import build_ground_state_script
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OptimizationChartTracker,
+    cleanup_opt_snapshots,
     inspect_geometry_optimization,
     persist_opt_charts,
+    persist_opt_snapshot,
+    should_snapshot,
+    snapshot_marker,
 )
 from molecular_qm_turbomole.lib.optimization_timing import (
     attach_optimizer_timings,
@@ -721,3 +725,174 @@ def test_process_heartbeat_appends_until_stopped(tmp_path):
     assert "still running" in text
     assert extra.exists()
     assert "jobex chunk cycles 1-10" in extra.read_text(encoding="utf-8")
+
+
+def test_should_snapshot_every_ten_iterations():
+    assert should_snapshot(None) is False
+    assert should_snapshot(0) is False
+    assert should_snapshot(1) is False
+    assert should_snapshot(9) is False
+    assert should_snapshot(10) is True
+    assert should_snapshot(11) is True
+    assert should_snapshot(11, seen={10}) is False
+    assert should_snapshot(20) is True
+    assert should_snapshot(15, seen={10}) is False
+    assert snapshot_marker(11) == 10
+    assert snapshot_marker(20) == 20
+
+
+def test_should_snapshot_requires_interval():
+    with pytest.raises(ValueError, match="interval"):
+        should_snapshot(10, interval=None)
+
+
+def _fake_qm_input():
+    class FakeFunctional:
+        def keyword(self):
+            return "pbe"
+
+    return SimpleNamespace(
+        charge=0,
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        functional=FakeFunctional(),
+        frequencies=False,
+        max_opt_cycles=100,
+        scfiterlimit=50,
+        molecule=SimpleNamespace(smiles="O", formula="H2O"),
+    )
+
+
+def _write_coord(directory) -> None:
+    (directory / "coord").write_text(
+        "$coord\n"
+        "  0.00000000000000      0.00000000000000      0.00000000000000      o\n"
+        "  1.00000000000000      0.00000000000000      0.00000000000000      h\n"
+        "$end\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+async def test_persist_opt_snapshot_saves_restart_archive(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_coord(tmp_path)
+    (tmp_path / "control").write_text("$title\n", encoding="utf-8")
+    (tmp_path / "mos").write_text("$scfmo\n$end\n", encoding="utf-8")
+    saved = []
+
+    class FakeDB:
+        async def save(self, obj):
+            saved.append(obj)
+            return obj
+
+        async def delete(self, obj):
+            saved.append(("delete", obj))
+            return obj
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts._get_db",
+        lambda: FakeDB(),
+    )
+    node_runner = MagicMock()
+    snap = await persist_opt_snapshot(
+        tmp_path,
+        ("control", "coord", "mos"),
+        _fake_qm_input(),
+        {"task_id": str(ObjectId()), "node_runner": node_runner},
+        geom_iter=10,
+        energy_hartree=-76.0,
+    )
+    assert snap is not None
+    assert snap.geom_iter == 10
+    assert snap.energy_hartree == -76.0
+    assert snap.wavefunction is not None
+    assert (tmp_path / "snapshot_restart_c0010.zip").is_file()
+    restart_names = [fs.name for fs in snap.qm_input.restart_files]
+    assert "control" in restart_names
+    assert "mos" in restart_names
+    assert any(obj is snap for obj in saved)
+    infos = [call.args[0] for call in node_runner.info.call_args_list]
+    assert any("Saved MoleculeSnapshot geom_iter=10" in msg for msg in infos)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_opt_snapshots_deletes_records_and_archives(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    archive = tmp_path / "snapshot_restart_c0010.zip"
+    archive.write_bytes(b"zip")
+    deleted = []
+
+    class FakeDB:
+        async def delete(self, obj):
+            deleted.append(obj)
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts._get_db",
+        lambda: FakeDB(),
+    )
+    wfn = SimpleNamespace(name="snapshot_restart_c0010.zip")
+    restart_fs = SimpleNamespace(name="control")
+    snap_input = SimpleNamespace(restart_files=[restart_fs])
+    mol = SimpleNamespace()
+    snap = SimpleNamespace(wavefunction=wfn, qm_input=snap_input, molecule=mol)
+    snapshots = [snap]
+    node_runner = MagicMock()
+    await cleanup_opt_snapshots(snapshots, {"node_runner": node_runner}, directory=tmp_path)
+    assert snap in deleted
+    assert wfn in deleted
+    assert restart_fs in deleted
+    assert mol in deleted
+    assert snap_input in deleted
+    assert snapshots == []
+    assert not archive.exists()
+    infos = [call.args[0] for call in node_runner.info.call_args_list]
+    assert any("Removed 1 intermediate MoleculeSnapshot" in msg for msg in infos)
+
+
+@pytest.mark.asyncio
+async def test_run_optimization_chunks_writes_snapshot_every_ten(
+    tmp_path, monkeypatch, patch_heartbeat
+):
+    monkeypatch.chdir(tmp_path)
+    calls = []
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    async def fake_snapshot(directory, restart_names, qm_input, kwargs, geom_iter, energy_hartree=None):
+        calls.append(geom_iter)
+        return SimpleNamespace(geom_iter=geom_iter)
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_snapshot",
+        fake_snapshot,
+    )
+
+    def fake_subprocess(name, command, cwd=""):
+        _write_energy(tmp_path, 10)
+        _write_gradient(tmp_path, 10)
+        _write_coord(tmp_path)
+        (tmp_path / "GEO_OPT_CONVERGED").write_text("CONVERGED\n", encoding="utf-8")
+        return True
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+        functional=SimpleNamespace(keyword=lambda: "pbe"),
+        charge=0,
+        frequencies=False,
+        scfiterlimit=50,
+        molecule=SimpleNamespace(smiles="O", formula="H2O"),
+    )
+    tracker = await _run_optimization_chunks(
+        qm_input, node_runner, {"node_runner": node_runner}
+    )
+    assert calls == [10]
+    assert tracker.seen_snapshots == {10}
+    assert len(tracker.snapshots) == 1

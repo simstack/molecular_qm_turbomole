@@ -1,11 +1,26 @@
 import logging
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from odmantic import ObjectId
 
-from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse_gradient_history
+from molecular_qm_models import (
+    BasisSet,
+    BasisSetEnum,
+    Functional,
+    FunctionalEnum,
+    Molecule,
+    MoleculeSnapshot,
+    QMInput,
+    geometry_hash_from_molecule,
+)
+from molecular_qm_turbomole.lib.output_parser import (
+    parse_coord_file,
+    parse_energy_history,
+    parse_gradient_history,
+)
 from simstack.core.context import context
 from simstack.models.charts_artifact import (
     AGChartAxisConfig,
@@ -13,11 +28,15 @@ from simstack.models.charts_artifact import (
     AGLineSeriesConfig,
     ChartArtifactModel,
 )
+from simstack.models.file_list import FileList
+from simstack.models.files import FileStack
 
 logger = logging.getLogger("TurbomoleOptArtifacts")
 
 OPT_CHART_INTERVAL = 10
+SNAPSHOT_INTERVAL = 10
 MAX_OPT_CYCLES = 100
+SNAPSHOT_ARCHIVE_PREFIX = "snapshot_restart"
 
 
 def task_id_from_kwargs(kwargs: dict) -> str:
@@ -136,6 +155,221 @@ def inspect_geometry_optimization(directory: str | Path = ".") -> tuple[str, Opt
     return "failed", "geometry optimization failed"
 
 
+def snapshot_marker(iteration, interval: int = SNAPSHOT_INTERVAL) -> int:
+    if iteration is None:
+        raise ValueError("iteration is required")
+    if interval is None:
+        raise ValueError("interval is required")
+    interval = int(interval)
+    if interval < 1:
+        raise ValueError("interval must be >= 1")
+    return (int(iteration) // interval) * interval
+
+
+def should_snapshot(iteration, interval: int = SNAPSHOT_INTERVAL, seen=None) -> bool:
+    if iteration is None:
+        return False
+    try:
+        iteration = int(iteration)
+    except (TypeError, ValueError):
+        return False
+    if interval is None:
+        raise ValueError("interval is required")
+    interval = int(interval)
+    if interval < 1 or iteration < 1:
+        return False
+    marker = snapshot_marker(iteration, interval)
+    if marker < interval:
+        return False
+    if seen is not None and marker in seen:
+        return False
+    return True
+
+
+def _enum_from_text(enum_cls, text, name: str):
+    if text is None:
+        raise ValueError(f"{name} is required")
+    raw = str(getattr(text, "value", text)).strip()
+    if not raw:
+        raise ValueError(f"{name} is required")
+    for item in enum_cls:
+        if item.value.lower() == raw.lower() or item.name.lower() == raw.lower():
+            return item
+    compact = raw.replace("-", "").replace("_", "").replace(" ", "")
+    for item in enum_cls:
+        item_value = item.value.replace("-", "").replace("_", "").replace(" ", "")
+        item_name = item.name.replace("_", "")
+        if item_value.lower() == compact.lower() or item_name.lower() == compact.lower():
+            return item
+    raise ValueError(f"Unsupported {name} for MoleculeSnapshot: {raw!r}")
+
+
+def _snapshot_qm_input(qm_input, molecule: Molecule, restart_files: FileList) -> QMInput:
+    if qm_input is None:
+        raise ValueError("qm_input is required")
+    basis_name = getattr(getattr(qm_input, "basis_set", None), "basis_set", None)
+    func_keyword = qm_input.functional.keyword()
+    return QMInput(
+        molecule=molecule,
+        charge=int(qm_input.charge),
+        basis_set=BasisSet(basis_set=_enum_from_text(BasisSetEnum, basis_name, "basis_set")),
+        functional=Functional(
+            functional=_enum_from_text(FunctionalEnum, func_keyword, "functional")
+        ),
+        optimization=True,
+        gradients=True,
+        frequencies=bool(qm_input.frequencies),
+        max_optimization_iterations=int(qm_input.max_opt_cycles),
+        max_scf_iterations=int(qm_input.scfiterlimit),
+        restart_files=restart_files,
+    )
+
+
+async def persist_opt_snapshot(
+    directory,
+    restart_names,
+    qm_input,
+    kwargs,
+    geom_iter: int,
+    energy_hartree=None,
+):
+    """Write a MoleculeSnapshot plus a zip of TURBOMOLE restart files."""
+    if restart_names is None:
+        raise ValueError("restart_names is required")
+    if geom_iter is None:
+        raise ValueError("geom_iter is required")
+    node_runner = None if not kwargs else kwargs.get("node_runner")
+    root = Path(directory)
+    existing = [name for name in restart_names if (root / name).is_file()]
+    if not existing:
+        if node_runner is not None:
+            node_runner.warning(
+                f"Skipping MoleculeSnapshot at geom_iter={geom_iter}: no restart files"
+            )
+        return None
+    molecule = parse_coord_file(root / "coord")
+    if molecule is None or not molecule.atoms:
+        if node_runner is not None:
+            node_runner.warning(
+                f"Skipping MoleculeSnapshot at geom_iter={geom_iter}: no coord geometry"
+            )
+        return None
+    source = getattr(qm_input, "molecule", None)
+    molecule.smiles = getattr(source, "smiles", None)
+    molecule.formula = getattr(source, "formula", None)
+    task_id = task_id_from_kwargs(kwargs or {})
+    archive = root / f"{SNAPSHOT_ARCHIVE_PREFIX}_c{int(geom_iter):04d}.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        for name in existing:
+            handle.write(root / name, arcname=name)
+    restart_files = FileList()
+    stacks = []
+    for name in existing:
+        fs = FileStack.from_local_file(
+            str(root / name),
+            in_memory=False,
+            is_hashable=True,
+            secure_source=True,
+            task_id=task_id,
+        )
+        restart_files.append(fs)
+        stacks.append(fs)
+    wfn_fs = FileStack.from_local_file(
+        str(archive),
+        in_memory=False,
+        is_hashable=True,
+        secure_source=True,
+        task_id=task_id,
+    )
+    snap_input = _snapshot_qm_input(qm_input, molecule, restart_files)
+    snapshot = MoleculeSnapshot(
+        date_created=datetime.now(),
+        task_id=task_id,
+        smiles=molecule.smiles,
+        formula=molecule.formula,
+        call_path=None if not kwargs else kwargs.get("call_path"),
+        geom_iter=int(geom_iter),
+        scf_iter=int(geom_iter),
+        final_structure=False,
+        energy_hartree=energy_hartree,
+        has_forces=False,
+        geometry_hash=geometry_hash_from_molecule(molecule),
+        qm_input=snap_input,
+        molecule=molecule,
+        wavefunction=wfn_fs,
+    )
+    db = _get_db()
+    if db is None:
+        if node_runner is not None:
+            node_runner.warning(
+                f"Skipping MoleculeSnapshot persist at geom_iter={geom_iter}: "
+                "context.db is unavailable"
+            )
+        return snapshot
+    await db.save(wfn_fs)
+    for fs in stacks:
+        await db.save(fs)
+    await db.save(molecule)
+    await db.save(snap_input)
+    await db.save(snapshot)
+    if node_runner is not None:
+        node_runner.info(
+            f"Saved MoleculeSnapshot geom_iter={geom_iter} "
+            f"restart_files={len(existing)} (task_id={task_id})"
+        )
+    return snapshot
+
+
+async def cleanup_opt_snapshots(snapshots, kwargs, directory="."):
+    """Delete intermediate MoleculeSnapshot checkpoints after a successful job."""
+    node_runner = None if not kwargs else kwargs.get("node_runner")
+    db = _get_db()
+    records = list(snapshots or [])
+    deleted = 0
+    for snap in records:
+        if db is None:
+            break
+        try:
+            wfn = getattr(snap, "wavefunction", None)
+            if wfn is not None:
+                await db.delete(wfn)
+            snap_input = getattr(snap, "qm_input", None)
+            if snap_input is not None:
+                for fs in list(getattr(snap_input, "restart_files", None) or []):
+                    try:
+                        await db.delete(fs)
+                    except Exception:
+                        pass
+                await db.delete(snap_input)
+            mol = getattr(snap, "molecule", None)
+            if mol is not None:
+                await db.delete(mol)
+            await db.delete(snap)
+            deleted += 1
+        except Exception as exc:
+            if node_runner is not None:
+                node_runner.warning(f"Failed to delete MoleculeSnapshot: {exc}")
+            else:
+                logger.warning("Failed to delete MoleculeSnapshot: %s", exc)
+    if isinstance(snapshots, list):
+        snapshots.clear()
+    root = Path(directory)
+    for path in root.glob(f"{SNAPSHOT_ARCHIVE_PREFIX}_*.zip"):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            if node_runner is not None:
+                node_runner.warning(f"Failed to delete snapshot archive {path}: {exc}")
+            else:
+                logger.warning("Failed to delete snapshot archive %s: %s", path, exc)
+    if node_runner is not None and deleted:
+        node_runner.info(
+            f"Removed {deleted} intermediate MoleculeSnapshot checkpoint(s)"
+        )
+
+
 class OptimizationChartTracker:
     """Accumulate energy/|g| traces, wall/CPU timings, and persist ChartArtifactModels."""
 
@@ -148,6 +382,8 @@ class OptimizationChartTracker:
         self.opt_wall_s = None
         self.opt_cpu_s = None
         self.charts = (None, None)
+        self.seen_snapshots: set[int] = set()
+        self.snapshots: list = []
 
     @property
     def latest_step(self) -> int:
@@ -224,3 +460,29 @@ class OptimizationChartTracker:
         if saved is not None:
             self.charts = saved
         return self.charts
+
+    async def maybe_snapshot(self, qm_input, restart_names, directory: str | Path = "."):
+        step = self.latest_step
+        if not should_snapshot(step, self.interval, self.seen_snapshots):
+            return None
+        energy = self.energy_history[-1]["energy"] if self.energy_history else None
+        try:
+            snap = await persist_opt_snapshot(
+                directory,
+                restart_names,
+                qm_input,
+                self.kwargs,
+                geom_iter=step,
+                energy_hartree=energy,
+            )
+        except Exception as exc:
+            node_runner = self._node_runner()
+            if node_runner is not None:
+                node_runner.warning(f"Failed to store MoleculeSnapshot: {exc}")
+            else:
+                logger.warning("Failed to store MoleculeSnapshot: %s", exc)
+            return None
+        if snap is not None:
+            self.seen_snapshots.add(snapshot_marker(step, self.interval))
+            self.snapshots.append(snap)
+        return snap
