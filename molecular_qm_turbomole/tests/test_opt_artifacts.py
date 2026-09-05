@@ -1,4 +1,6 @@
+import importlib
 import math
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -11,13 +13,29 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
     inspect_geometry_optimization,
     persist_opt_charts,
 )
+from molecular_qm_turbomole.lib.optimization_timing import (
+    attach_optimizer_timings,
+    optimization_timing_table,
+)
 from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse_gradient_history
 from molecular_qm_turbomole.nodes.turbomole2 import (
+    HEARTBEAT_INTERVAL_S,
+    HEARTBEAT_LOG,
     _collect_turbomole_info_files,
     _collect_turbomole_restart_files,
     _run_optimization_chunks,
     _with_runner_output,
 )
+
+turbomole2_module = importlib.import_module("molecular_qm_turbomole.nodes.turbomole2")
+
+
+@pytest.fixture
+def patch_heartbeat(monkeypatch):
+    instance = MagicMock()
+    cls = MagicMock(return_value=instance)
+    monkeypatch.setattr(turbomole2_module, "ProcessHeartbeat", cls)
+    return cls, instance
 
 
 def _write_energy(directory, n_cycles: int) -> None:
@@ -208,7 +226,9 @@ async def test_persist_opt_charts_saves_energy_and_gradient(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_optimization_chunks_flushes_at_ten_and_twenty(tmp_path, monkeypatch):
+async def test_run_optimization_chunks_flushes_at_ten_and_twenty(
+    tmp_path, monkeypatch, patch_heartbeat
+):
     monkeypatch.chdir(tmp_path)
     flush_steps = []
 
@@ -251,7 +271,9 @@ async def test_run_optimization_chunks_flushes_at_ten_and_twenty(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_run_optimization_chunks_flushes_when_energy_has_initial_scf(tmp_path, monkeypatch):
+async def test_run_optimization_chunks_flushes_when_energy_has_initial_scf(
+    tmp_path, monkeypatch, patch_heartbeat
+):
     """jobex -c 10 typically leaves 11 energy records (initial SCF + 10 cycles)."""
     monkeypatch.chdir(tmp_path)
     flush_steps = []
@@ -300,7 +322,9 @@ async def test_run_optimization_chunks_flushes_when_energy_has_initial_scf(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_run_optimization_chunks_flushes_on_early_convergence(tmp_path, monkeypatch):
+async def test_run_optimization_chunks_flushes_on_early_convergence(
+    tmp_path, monkeypatch, patch_heartbeat
+):
     monkeypatch.chdir(tmp_path)
     flush_steps = []
 
@@ -331,7 +355,9 @@ async def test_run_optimization_chunks_flushes_on_early_convergence(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_run_optimization_chunks_honors_max_opt_cycles(tmp_path, monkeypatch):
+async def test_run_optimization_chunks_honors_max_opt_cycles(
+    tmp_path, monkeypatch, patch_heartbeat
+):
     monkeypatch.chdir(tmp_path)
 
     async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
@@ -376,7 +402,7 @@ def test_with_runner_output_appends_stderr_once():
 
 @pytest.mark.asyncio
 async def test_run_optimization_chunks_includes_subprocess_output_on_running_marker(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, patch_heartbeat
 ):
     monkeypatch.chdir(tmp_path)
 
@@ -424,6 +450,7 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     (tmp_path / "define.inp").write_text("define inp\n", encoding="utf-8")
     (tmp_path / "define.out").write_text("define out\n", encoding="utf-8")
     (tmp_path / "jobex.out").write_text("jobex out\n", encoding="utf-8")
+    (tmp_path / HEARTBEAT_LOG).write_text("heartbeat\n", encoding="utf-8")
 
     # Create restart files (which must NOT be added to info_files)
     (tmp_path / "control").write_text("$title test\n", encoding="utf-8")
@@ -453,6 +480,7 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     assert "define.inp" in collected_names
     assert "define.out" in collected_names
     assert "jobex.out" in collected_names
+    assert HEARTBEAT_LOG in collected_names
 
     # Restart files must NOT be in info_files
     for restart_name in ["control", "coord", "basis", "auxbasis", "mos", "energy", "gradient"]:
@@ -502,3 +530,194 @@ async def test_collect_turbomole_restart_files(tmp_path, monkeypatch):
     # Info files must NOT be in runner.files
     assert "job.last" not in runner_files
     assert "turbomole_exe_c010.log" not in runner_files
+
+
+def test_record_iteration_logs_energy_gradient_and_timings(tmp_path):
+    node_runner = MagicMock()
+    tracker = OptimizationChartTracker({"node_runner": node_runner})
+    _write_energy(tmp_path, 3)
+    _write_gradient(tmp_path, 3)
+    tracker.update_from_directory(tmp_path)
+    tracker.record_iteration(2.5, 1.25)
+    assert len(tracker.timing_history) == 1
+    row = tracker.timing_history[0]
+    assert row["step"] == 3
+    assert row["wall_time_s"] == 2.5
+    assert row["cpu_time_s"] == 1.25
+    assert row["energy"] == pytest.approx(-76.003)
+    assert row["grad_norm"] == pytest.approx(0.0103)
+    messages = [call.args[0] for call in node_runner.info.call_args_list]
+    assert len(messages) == 1
+    assert re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ", messages[0])
+    assert "Optimization step 3: energy=-76.003000000000 Ha, |g|=1.030000e-02 Ha/Bohr" in messages[0]
+    assert "wall=2.50s, cpu=1.25s" in messages[0]
+    logged = [call.args[0] for call in node_runner.log.call_args_list]
+    assert logged == messages
+
+
+def test_record_iteration_requires_wall_and_cpu():
+    tracker = OptimizationChartTracker({})
+    with pytest.raises(ValueError, match="wall_s"):
+        tracker.record_iteration(None, 1.0)
+    with pytest.raises(ValueError, match="cpu_s"):
+        tracker.record_iteration(1.0, None)
+
+
+def test_optimization_timing_table_has_iteration_and_summary_rows():
+    snap = SimpleNamespace(
+        timing_history=[
+            {"step": 1, "wall_time_s": 2.0, "cpu_time_s": 1.5},
+            {"step": 2, "wall_time_s": 4.0, "cpu_time_s": 3.0},
+        ],
+        opt_wall_s=7.0,
+        opt_cpu_s=5.0,
+    )
+    table = optimization_timing_table(snap)
+    assert table.name == "Optimization timing"
+    assert table.row[0]["metric"] == "iteration"
+    assert table.row[0]["step"] == 1
+    assert table.row[1]["step"] == 2
+    by_metric = {row["metric"]: row for row in table.row if row["metric"] != "iteration"}
+    assert by_metric["total"]["wall_time_s"] == 6.0
+    assert by_metric["mean"]["cpu_time_s"] == 2.25
+    assert by_metric["min"]["wall_time_s"] == 2.0
+    assert by_metric["max"]["cpu_time_s"] == 3.0
+    assert by_metric["optimize"]["wall_time_s"] == 7.0
+
+
+def test_optimization_timing_table_includes_frequencies_row():
+    snap = SimpleNamespace(
+        timing_history=[{"step": 1, "wall_time_s": 2.0, "cpu_time_s": 1.5}],
+        opt_wall_s=2.0,
+        opt_cpu_s=1.5,
+    )
+    table = optimization_timing_table(snap, freq_wall_s=4.5, freq_cpu_s=9.0)
+    by_metric = {row["metric"]: row for row in table.row}
+    assert by_metric["optimize"]["wall_time_s"] == 2.0
+    assert by_metric["frequencies"]["wall_time_s"] == 4.5
+    assert by_metric["frequencies"]["cpu_time_s"] == 9.0
+
+
+def test_optimization_timing_table_frequencies_only():
+    table = optimization_timing_table(None, freq_wall_s=4.5, freq_cpu_s=9.0)
+    assert table.row[0]["metric"] == "frequencies"
+    assert table.row[0]["wall_time_s"] == 4.5
+    assert table.row[0]["cpu_time_s"] == 9.0
+
+
+def test_optimization_timing_table_skips_empty_snapshotter():
+    assert optimization_timing_table(None) is None
+    snap = SimpleNamespace(timing_history=[], opt_wall_s=None, opt_cpu_s=None)
+    assert optimization_timing_table(snap) is None
+
+
+def test_optimization_timing_table_requires_cpu_when_wall_set():
+    snap = SimpleNamespace(timing_history=[], opt_wall_s=1.0, opt_cpu_s=None)
+    with pytest.raises(ValueError, match="opt_cpu_s"):
+        optimization_timing_table(snap)
+
+
+def test_optimization_timing_table_requires_freq_cpu_when_wall_set():
+    with pytest.raises(ValueError, match="freq_cpu_s"):
+        optimization_timing_table(None, freq_wall_s=1.0)
+
+
+@pytest.mark.asyncio
+async def test_run_optimization_chunks_records_timings_heartbeat_and_logs(
+    tmp_path, monkeypatch, patch_heartbeat
+):
+    heartbeat_cls, heartbeat = patch_heartbeat
+    monkeypatch.chdir(tmp_path)
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+
+    def fake_subprocess(name, command, cwd=""):
+        _write_energy(tmp_path, 10)
+        _write_gradient(tmp_path, 10)
+        (tmp_path / "GEO_OPT_CONVERGED").write_text("CONVERGED\n", encoding="utf-8")
+        return True
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    qm_input = SimpleNamespace(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+    )
+    tracker = await _run_optimization_chunks(
+        qm_input, node_runner, {"node_runner": node_runner}
+    )
+    assert heartbeat_cls.call_count == 1
+    assert heartbeat_cls.call_args.kwargs["interval_s"] == HEARTBEAT_INTERVAL_S
+    assert HEARTBEAT_INTERVAL_S == 1800.0
+    assert heartbeat.start.call_count == 1
+    assert heartbeat.stop.call_count == 1
+    assert [row["step"] for row in tracker.timing_history] == [10]
+    assert tracker.timing_history[0]["wall_time_s"] >= 0
+    assert tracker.timing_history[0]["cpu_time_s"] >= 0
+    assert tracker.opt_wall_s is not None
+    assert tracker.opt_cpu_s is not None
+    metrics = [row["metric"] for row in node_runner.optimization_timing.row]
+    assert metrics.count("iteration") == 1
+    assert "total" in metrics
+    assert "optimize" in metrics
+    infos = [call.args[0] for call in node_runner.info.call_args_list]
+    assert any("Starting jobex chunk cycles 1-10" in msg for msg in infos)
+    step_logs = [msg for msg in infos if "Optimization step 10:" in msg]
+    assert len(step_logs) == 1
+    assert "energy=-76.010000000000 Ha" in step_logs[0]
+    assert "|g|=1.100000e-02 Ha/Bohr" in step_logs[0]
+    assert any("Optimization timings:" in msg for msg in infos)
+
+
+def test_attach_optimizer_timings_copies_iteration_table():
+    node_runner = SimpleNamespace()
+    node_runner.info = MagicMock()
+    snapshotter = SimpleNamespace(
+        timing_history=[
+            {"step": 1, "wall_time_s": 2.0, "cpu_time_s": 1.5},
+            {"step": 2, "wall_time_s": 4.0, "cpu_time_s": 3.0},
+        ],
+        opt_wall_s=6.5,
+        opt_cpu_s=15.25,
+    )
+    attach_optimizer_timings(node_runner, snapshotter, freq_wall_s=3.25, freq_cpu_s=8.5)
+    assert node_runner.optimization_timing.row[0]["step"] == 1
+    by_metric = {row["metric"]: row for row in node_runner.optimization_timing.row}
+    assert by_metric["optimize"]["cpu_time_s"] == 15.25
+    assert by_metric["frequencies"]["wall_time_s"] == 3.25
+    node_runner.info.assert_called()
+
+
+def test_process_heartbeat_appends_until_stopped(tmp_path):
+    import time
+
+    from molecular_qm_turbomole.lib.process_heartbeat import ProcessHeartbeat
+
+    path = tmp_path / "heartbeat.log"
+    extra = tmp_path / "turbomole_exe_c010.log"
+    heartbeat = ProcessHeartbeat(
+        str(path),
+        "jobex chunk cycles 1-10",
+        interval_s=0.2,
+        task_id="abc",
+        extra_paths=[str(extra)],
+    )
+    heartbeat.start()
+    try:
+        deadline = time.time() + 5
+        while time.time() < deadline and not path.exists():
+            time.sleep(0.05)
+        time.sleep(0.45)
+    finally:
+        heartbeat.stop()
+    text = path.read_text(encoding="utf-8")
+    assert "jobex chunk cycles 1-10" in text
+    assert "still running" in text
+    assert extra.exists()
+    assert "jobex chunk cycles 1-10" in extra.read_text(encoding="utf-8")

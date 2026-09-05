@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -136,13 +137,16 @@ def inspect_geometry_optimization(directory: str | Path = ".") -> tuple[str, Opt
 
 
 class OptimizationChartTracker:
-    """Accumulate energy/|g| traces and persist ChartArtifactModels every N steps."""
+    """Accumulate energy/|g| traces, wall/CPU timings, and persist ChartArtifactModels."""
 
     def __init__(self, kwargs: dict, interval: int = OPT_CHART_INTERVAL):
         self.kwargs = kwargs
         self.interval = interval
         self.energy_history: list[dict] = []
         self.grad_history: list[dict] = []
+        self.timing_history: list[dict] = []
+        self.opt_wall_s = None
+        self.opt_cpu_s = None
         self.charts = (None, None)
 
     @property
@@ -150,6 +154,51 @@ class OptimizationChartTracker:
         if not self.energy_history:
             return 0
         return int(self.energy_history[-1]["step"])
+
+    def _node_runner(self):
+        if not self.kwargs:
+            return None
+        return self.kwargs.get("node_runner")
+
+    def record_iteration(self, wall_s, cpu_s):
+        """Log energy/|g| and append one timing row for the latest energy cycle."""
+        if wall_s is None:
+            raise ValueError("wall_s is required")
+        if cpu_s is None:
+            raise ValueError("cpu_s is required")
+        step = self.latest_step
+        energy = self.energy_history[-1]["energy"] if self.energy_history else None
+        grad_norm = self.grad_history[-1]["grad_norm"] if self.grad_history else None
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if energy is None or grad_norm is None:
+            msg = f"{stamp} Optimization step {step}: energy/gradient unavailable"
+        else:
+            msg = (
+                f"{stamp} Optimization step {step}: "
+                f"energy={float(energy):.12f} Ha, |g|={float(grad_norm):.6e} Ha/Bohr"
+            )
+        msg = f"{msg}, wall={float(wall_s):.2f}s, cpu={float(cpu_s):.2f}s"
+        node_runner = self._node_runner()
+        if node_runner is not None:
+            node_runner.info(msg)
+            log = getattr(node_runner, "log", None)
+            if callable(log):
+                log(msg)
+        else:
+            logger.info(msg)
+        if step < 1:
+            return stamp
+        self.timing_history.append(
+            {
+                "step": int(step),
+                "wall_time_s": float(wall_s),
+                "cpu_time_s": float(cpu_s),
+                "timestamp": stamp,
+                "energy": energy,
+                "grad_norm": grad_norm,
+            }
+        )
+        return stamp
 
     def update_from_directory(self, directory: str | Path = ".") -> None:
         root = Path(directory)

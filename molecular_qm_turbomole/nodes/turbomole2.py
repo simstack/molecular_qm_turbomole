@@ -1,6 +1,9 @@
 import logging
 import math
+import os
 import re
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +22,8 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
     OptimizationChartTracker,
     inspect_geometry_optimization,
 )
+from molecular_qm_turbomole.lib.optimization_timing import attach_optimizer_timings
+from molecular_qm_turbomole.lib.process_heartbeat import ProcessHeartbeat
 from molecular_qm_turbomole.lib.hyperpol import (
     apply_hyperpolarizability_control,
     hyperpolarizability_requested,
@@ -47,6 +52,8 @@ from simstack.models.parameters import SlurmParameters
 logger = logging.getLogger("Turbomole2Node")
 
 _OUTPUT_TAIL = 2000
+HEARTBEAT_LOG = "heartbeat.log"
+HEARTBEAT_INTERVAL_S = 1800.0
 
 
 def _runner_output_tail(node_runner, limit: int = _OUTPUT_TAIL) -> str:
@@ -68,6 +75,41 @@ def _fail(node_runner, message: str) -> None:
     """Mark the node failed and raise so Simstack stores the message on the registry."""
     node_runner.fail(message)
     raise RuntimeError(message)
+
+
+def _process_cpu_seconds() -> float:
+    times = os.times()
+    return float(times.user + times.system + times.children_user + times.children_system)
+
+
+def _run_monitored_subprocess(node_runner, name, script, prefix, kwargs):
+    """Run a TURBOMOLE subprocess with heartbeat progress lines and wall/CPU timing."""
+    task_id = ""
+    if kwargs:
+        task_id = str(kwargs.get("task_id") or getattr(node_runner, "task_id", "") or "")
+    heartbeat = ProcessHeartbeat(
+        HEARTBEAT_LOG,
+        prefix,
+        interval_s=HEARTBEAT_INTERVAL_S,
+        task_id=task_id,
+        extra_paths=[f"{name}.log"],
+    )
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    start_msg = f"{stamp} Starting {prefix}"
+    node_runner.info(start_msg)
+    log = getattr(node_runner, "log", None)
+    if callable(log):
+        log(start_msg)
+    heartbeat.start()
+    wall_start = time.monotonic()
+    cpu_start = _process_cpu_seconds()
+    try:
+        ok = node_runner.subprocess(name, script)
+    finally:
+        wall_s = time.monotonic() - wall_start
+        cpu_s = _process_cpu_seconds() - cpu_start
+        heartbeat.stop()
+    return ok, wall_s, cpu_s
 
 slurm_parameters = SlurmParameters(
     nodes=1,
@@ -124,6 +166,7 @@ TURBOMOLE_INFO_STATIC_FILES = (
     "vibspectrum",
     "escf.out",
     "hyperpols",
+    HEARTBEAT_LOG,
 )
 
 TURBOMOLE_INFO_PATTERNS = (
@@ -234,12 +277,14 @@ def _collect_turbomole_info_files(node_runner) -> None:
             node_runner.warning(f"Failed to attach Turbomole info file {fname}: {e}")
 
 
-async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
+async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict):
     tracker = OptimizationChartTracker(kwargs)
     last_cycles = 0
     last_energy_step = 0
     converged = False
     max_opt_cycles = int(qm_input.max_opt_cycles)
+    opt_wall_start = time.monotonic()
+    opt_cpu_start = _process_cpu_seconds()
     try:
         while last_cycles < max_opt_cycles:
             chunk = min(OPT_CHART_INTERVAL, max_opt_cycles - last_cycles)
@@ -258,8 +303,15 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                 f"Running jobex chunk cycles {last_cycles + 1}-{chunk_end} "
                 f"(max {max_opt_cycles})."
             )
-            ok = node_runner.subprocess(subprocess_name, run_script)
+            ok, wall_s, cpu_s = _run_monitored_subprocess(
+                node_runner,
+                subprocess_name,
+                run_script,
+                f"jobex chunk cycles {last_cycles + 1}-{chunk_end}",
+                kwargs,
+            )
             tracker.update_from_directory(".")
+            tracker.record_iteration(wall_s, cpu_s)
             status, error = inspect_geometry_optimization(".")
             # Persist as soon as the chunk subprocess returns. Do not use
             # energy-file length as the cycle counter: jobex `-c 10` often
@@ -305,19 +357,36 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                 f"Structure optimization did not converge in {max_opt_cycles} cycles."
             )
     finally:
+        tracker.opt_wall_s = time.monotonic() - opt_wall_start
+        tracker.opt_cpu_s = _process_cpu_seconds() - opt_cpu_start
         try:
             tracker.update_from_directory(".")
             await tracker.maybe_flush(force=True)
         except Exception as exc:
             node_runner.warning(f"Failed to store optimization charts: {exc}")
+        attach_optimizer_timings(node_runner, tracker)
+    return tracker
 
 
 async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict) -> None:
     if qm_input.optimization:
-        await _run_optimization_chunks(qm_input, node_runner, kwargs)
+        tracker = await _run_optimization_chunks(qm_input, node_runner, kwargs)
         if qm_input.frequencies:
             freq_script = prepend_tm_env(build_frequency_script())
-            if not node_runner.subprocess("turbomole_aoforce", freq_script):
+            ok, freq_wall_s, freq_cpu_s = _run_monitored_subprocess(
+                node_runner,
+                "turbomole_aoforce",
+                freq_script,
+                "Frequency/aoforce calculation",
+                kwargs,
+            )
+            attach_optimizer_timings(
+                node_runner,
+                tracker,
+                freq_wall_s=freq_wall_s,
+                freq_cpu_s=freq_cpu_s,
+            )
+            if not ok:
                 raise RuntimeError(
                     _with_runner_output(
                         node_runner,
@@ -334,7 +403,18 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
             frequencies=bool(qm_input.frequencies),
         )
     )
-    if not node_runner.subprocess("turbomole_exe", run_script):
+    ok, wall_s, cpu_s = _run_monitored_subprocess(
+        node_runner,
+        "turbomole_exe",
+        run_script,
+        "TURBOMOLE ground-state calculation",
+        kwargs,
+    )
+    if qm_input.frequencies:
+        attach_optimizer_timings(
+            node_runner, None, freq_wall_s=wall_s, freq_cpu_s=cpu_s
+        )
+    if not ok:
         raise RuntimeError(
             _with_runner_output(
                 node_runner,
@@ -354,6 +434,8 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     SimstackResult:
         result (QMResult): Final energy, structure, and convergence status.
         hyperpolarizability (SimpleTable): Frequency-pair beta_zzz in 10^-30 esu (z-dipole frame).
+        optimization_timing (SimpleTable): Per-chunk and summary wall/CPU times.
+            Frequency jobs add a separate ``frequencies`` row.
     """
     node_runner = kwargs["node_runner"]
     node_runner.info("Starting turbomole2 calculation")
@@ -410,7 +492,14 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 f"(mode={qm_input.hyperpolarizability.value}, lambda_nm={wavelength_nm:.10g})."
             )
             response_script = prepend_tm_env(build_hyperpolarizability_script())
-            if not node_runner.subprocess("turbomole_response", response_script):
+            ok, _, _ = _run_monitored_subprocess(
+                node_runner,
+                "turbomole_response",
+                response_script,
+                "TURBOMOLE hyperpolarizability (escf)",
+                kwargs,
+            )
+            if not ok:
                 raise RuntimeError(
                     "Turbomole hyperpolarizability step failed. Check turbomole_response.log and escf.out."
                 )
