@@ -1,4 +1,7 @@
 import logging
+import os
+import signal
+import threading
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +18,15 @@ from molecular_qm_models import (
     MoleculeSnapshot,
     QMInput,
     geometry_hash_from_molecule,
+)
+from molecular_qm_turbomole.lib.opt_watchdog import (
+    WATCHDOG_SIDECAR,
+    OptimizationOscillationError,
+    OptimizationTimeoutError,
+    basis_name_from_qm_input,
+    energy_oscillation_stats,
+    iteration_timeout_seconds,
+    n_atoms_from_molecule,
 )
 from molecular_qm_turbomole.lib.output_parser import (
     parse_coord_file,
@@ -34,6 +46,7 @@ from simstack.models.files import FileStack
 logger = logging.getLogger("TurbomoleOptArtifacts")
 
 OPT_CHART_INTERVAL = 10
+OPT_CHART_STEPS = 20
 SNAPSHOT_INTERVAL = 10
 MAX_OPT_CYCLES = 100
 SNAPSHOT_ARCHIVE_PREFIX = "snapshot_restart"
@@ -104,7 +117,7 @@ async def persist_opt_charts(energy_data, grad_data, kwargs, existing=(None, Non
     if db is None:
         return existing
     energy_chart = opt_line_chart(
-        list(energy_data),
+        list(energy_data)[-OPT_CHART_STEPS:],
         "energy",
         "TURBOMOLE optimization energy",
         "Energy (Ha)",
@@ -112,7 +125,7 @@ async def persist_opt_charts(energy_data, grad_data, kwargs, existing=(None, Non
         existing[0],
     )
     grad_chart = opt_line_chart(
-        list(grad_data),
+        list(grad_data)[-OPT_CHART_STEPS:],
         "grad_norm",
         "TURBOMOLE optimization gradient norm",
         "|g| (Ha/Bohr)",
@@ -373,9 +386,10 @@ async def cleanup_opt_snapshots(snapshots, kwargs, directory="."):
 class OptimizationChartTracker:
     """Accumulate energy/|g| traces, wall/CPU timings, and persist ChartArtifactModels."""
 
-    def __init__(self, kwargs: dict, interval: int = OPT_CHART_INTERVAL):
+    def __init__(self, kwargs: dict, interval: int = OPT_CHART_INTERVAL, qm_input=None):
         self.kwargs = kwargs
         self.interval = interval
+        self.qm_input = qm_input
         self.energy_history: list[dict] = []
         self.grad_history: list[dict] = []
         self.timing_history: list[dict] = []
@@ -384,6 +398,17 @@ class OptimizationChartTracker:
         self.charts = (None, None)
         self.seen_snapshots: set[int] = set()
         self.snapshots: list = []
+        self._iter_timer = None
+        self._timeout_logged = False
+        self._watchdog_geom_iter = 0
+        if qm_input is None:
+            self.n_atoms = None
+            self.basis_name = None
+            self.iteration_timeout = None
+        else:
+            self.n_atoms = n_atoms_from_molecule(getattr(qm_input, "molecule", None))
+            self.basis_name = basis_name_from_qm_input(qm_input)
+            self.iteration_timeout = iteration_timeout_seconds(self.n_atoms, self.basis_name)
 
     @property
     def latest_step(self) -> int:
@@ -486,3 +511,100 @@ class OptimizationChartTracker:
             self.seen_snapshots.add(snapshot_marker(step, self.interval))
             self.snapshots.append(snap)
         return snap
+
+    def log_timeout_budget(self):
+        if self._timeout_logged:
+            return
+        if self.iteration_timeout is None:
+            raise ValueError("iteration_timeout is required")
+        self._timeout_logged = True
+        msg = (
+            f"Optimization iteration timeout: {self.iteration_timeout:g}s "
+            f"(n_atoms={self.n_atoms}, basis={self.basis_name or 'unknown'})"
+        )
+        node_runner = self._node_runner()
+        if node_runner is not None:
+            node_runner.info(msg)
+        else:
+            logger.info(msg)
+
+    def cancel_iter_timer(self):
+        timer = self._iter_timer
+        self._iter_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def start_iter_timer(self, geom_iter):
+        if geom_iter is None:
+            raise ValueError("geom_iter is required")
+        if self.iteration_timeout is None:
+            raise ValueError("iteration_timeout is required")
+        self.cancel_iter_timer()
+        self._watchdog_geom_iter = int(geom_iter)
+        timeout = float(self.iteration_timeout)
+        if timeout <= 0:
+            raise ValueError("iteration_timeout must be positive")
+        timer = threading.Timer(timeout, self._on_iteration_hung)
+        timer.daemon = True
+        timer.start()
+        self._iter_timer = timer
+
+    def _on_iteration_hung(self):
+        msg = (
+            f"Optimization iteration watchdog: jobex chunk did not return within "
+            f"{self.iteration_timeout:g}s (n_atoms={self.n_atoms}, "
+            f"basis={self.basis_name or 'unknown'}, geom_iter={self._watchdog_geom_iter}). "
+            "Terminating process."
+        )
+        node_runner = self._node_runner()
+        if node_runner is not None:
+            try:
+                node_runner.error(msg)
+            except Exception:
+                pass
+        logger.error(msg)
+        try:
+            Path(WATCHDOG_SIDECAR).write_text(msg + "\n", encoding="utf-8")
+        except Exception:
+            pass
+        if os.name != "nt" and hasattr(signal, "SIGTERM"):
+            try:
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+            except Exception:
+                pass
+        os._exit(1)
+
+    def raise_if_iteration_timed_out(self, elapsed):
+        if elapsed is None:
+            raise ValueError("elapsed is required")
+        if self.iteration_timeout is None:
+            raise ValueError("iteration_timeout is required")
+        if elapsed <= self.iteration_timeout:
+            return
+        raise OptimizationTimeoutError(
+            f"Optimization iteration {self._watchdog_geom_iter} took {elapsed:.1f}s "
+            f"(limit {self.iteration_timeout:g}s; n_atoms={self.n_atoms}, "
+            f"basis={self.basis_name or 'unknown'})"
+        )
+
+    def raise_if_energy_oscillating(self):
+        energies = [row["energy"] for row in self.energy_history]
+        grad_norm = self.grad_history[-1]["grad_norm"] if self.grad_history else None
+        stats = energy_oscillation_stats(energies, grad_norm)
+        if stats is None:
+            return
+        msg = (
+            "Optimization failed: energy oscillating without downward trend "
+            f"after {stats['n_steps']} iterations "
+            f"(mean_dE={stats['mean_delta']:.3e} Ha, "
+            f"amplitude={stats['amplitude']:.3e} Ha, "
+            f"sign_flips={stats['sign_flips']}, "
+            f"|g|={stats['grad_norm']:.3e})"
+        )
+        node_runner = self._node_runner()
+        if node_runner is not None:
+            node_runner.error(msg)
+        else:
+            logger.error(msg)
+        raise OptimizationOscillationError(msg)

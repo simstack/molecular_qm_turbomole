@@ -20,9 +20,9 @@ from molecular_qm_turbomole.lib.env import (
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OPT_CHART_INTERVAL,
     OptimizationChartTracker,
-    cleanup_opt_snapshots,
     inspect_geometry_optimization,
 )
+from molecular_qm_turbomole.lib.opt_watchdog import WATCHDOG_SIDECAR
 from molecular_qm_turbomole.lib.optimization_timing import attach_optimizer_timings
 from molecular_qm_turbomole.lib.process_heartbeat import ProcessHeartbeat
 from molecular_qm_turbomole.lib.hyperpol import (
@@ -66,6 +66,11 @@ def _runner_output_tail(node_runner, limit: int = _OUTPUT_TAIL) -> str:
 
 
 def _with_runner_output(node_runner, message: str) -> str:
+    sidecar = Path(WATCHDOG_SIDECAR)
+    if sidecar.is_file():
+        watchdog = sidecar.read_text(encoding="utf-8", errors="replace").strip()
+        if watchdog and watchdog not in message:
+            message = f"{message} {watchdog}"
     tail = _runner_output_tail(node_runner)
     if tail and tail not in message:
         return f"{message}\n{tail}"
@@ -168,6 +173,7 @@ TURBOMOLE_INFO_STATIC_FILES = (
     "escf.out",
     "hyperpols",
     HEARTBEAT_LOG,
+    WATCHDOG_SIDECAR,
 )
 
 TURBOMOLE_INFO_PATTERNS = (
@@ -204,14 +210,48 @@ def _collect_output_files() -> list[str]:
     return [name for name in OUTPUT_FILES if Path(name).exists()]
 
 
+def _append_artifact_file(node_runner, path: Path, *, in_memory: bool, info_only: bool = False):
+    if node_runner is None:
+        raise ValueError("node_runner is required")
+    if path is None:
+        raise ValueError("path is required")
+    path = Path(path)
+    if not path.is_file():
+        return None
+    names = set()
+    for fs in list(getattr(node_runner, "files", None) or []) + list(
+        getattr(node_runner, "info_files", None) or []
+    ):
+        name = getattr(fs, "name", None)
+        if name:
+            names.add(name)
+    if path.name in names:
+        return None
+    if not hasattr(node_runner, "files") or node_runner.files is None:
+        node_runner.files = []
+    if not hasattr(node_runner, "info_files") or node_runner.info_files is None:
+        node_runner.info_files = []
+    task_id = getattr(node_runner, "task_id", "") or ""
+    file_stack = FileStack.from_local_file(
+        str(path),
+        in_memory=in_memory,
+        is_hashable=True,
+        secure_source=True,
+        task_id=task_id,
+    )
+    if not info_only:
+        node_runner.files.append(file_stack)
+    else:
+        node_runner.info_files.append(file_stack)
+    dest = "info_files" if info_only else "files"
+    node_runner.info(f"Added {path.name} to {dest} (in_memory={in_memory})")
+    return file_stack
+
+
 async def _collect_turbomole_restart_files(
     node_runner, qm_result: Optional[QMResult] = None
 ) -> None:
     """Attach Turbomole restart files to node_runner.files and qm_result.files."""
-    if not hasattr(node_runner, "files") or node_runner.files is None:
-        node_runner.files = []
-
-    already_runner = {getattr(fs, "name", None) for fs in node_runner.files}
     already_result = (
         {getattr(fs, "name", None) for fs in getattr(qm_result, "files", []) or []}
         if qm_result is not None
@@ -219,22 +259,17 @@ async def _collect_turbomole_restart_files(
     )
 
     for fname in TURBOMOLE_RESTART_FILES:
-        p = Path(fname)
-        if not p.is_file():
-            continue
         try:
-            file_stack = FileStack.from_local_file(
-                str(p), in_memory=True, is_hashable=True, secure_source=True
+            file_stack = _append_artifact_file(
+                node_runner, Path(fname), in_memory=False, info_only=False
             )
+            if file_stack is None:
+                continue
             try:
                 if context.db is not None:
                     await context.db.save(file_stack)
             except Exception:
                 pass
-            if fname not in already_runner:
-                node_runner.files.append(file_stack)
-                already_runner.add(fname)
-                node_runner.info(f"Attached Turbomole restart file: {fname}")
             if qm_result is not None and fname not in already_result:
                 qm_result.files.append(file_stack)
                 already_result.add(fname)
@@ -244,10 +279,6 @@ async def _collect_turbomole_restart_files(
 
 def _collect_turbomole_info_files(node_runner) -> None:
     """Attach Turbomole info files (job.last, all job.* files, logs, markers) to node_runner.info_files."""
-    if not hasattr(node_runner, "info_files") or node_runner.info_files is None:
-        node_runner.info_files = []
-
-    already = {getattr(fs, "name", None) for fs in node_runner.info_files}
     restart_names = set(TURBOMOLE_RESTART_FILES)
 
     matched_files = set()
@@ -263,23 +294,17 @@ def _collect_turbomole_info_files(node_runner) -> None:
 
     for p in sorted(matched_files, key=lambda path: str(path.name)):
         fname = p.name
-        # Exclude restart files from info_files
-        if fname in restart_names or fname in already:
+        if fname in restart_names:
             continue
         try:
-            node_runner.info_files.append(
-                FileStack.from_local_file(
-                    str(p), in_memory=True, is_hashable=True, secure_source=True
-                )
-            )
-            already.add(fname)
-            node_runner.info(f"Attached Turbomole info file: {fname}")
+            _append_artifact_file(node_runner, p, in_memory=False, info_only=True)
         except Exception as e:
             node_runner.warning(f"Failed to attach Turbomole info file {fname}: {e}")
 
 
 async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwargs: dict):
-    tracker = OptimizationChartTracker(kwargs)
+    tracker = OptimizationChartTracker(kwargs, qm_input=qm_input)
+    tracker.log_timeout_budget()
     last_cycles = 0
     last_energy_step = 0
     converged = False
@@ -302,17 +327,23 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
             subprocess_name = f"turbomole_exe_c{chunk_end:03d}"
             node_runner.info(
                 f"Running jobex chunk cycles {last_cycles + 1}-{chunk_end} "
-                f"(max {max_opt_cycles})."
+                f"(max {max_opt_cycles}, timeout {tracker.iteration_timeout:g}s)."
             )
-            ok, wall_s, cpu_s = _run_monitored_subprocess(
-                node_runner,
-                subprocess_name,
-                run_script,
-                f"jobex chunk cycles {last_cycles + 1}-{chunk_end}",
-                kwargs,
-            )
+            tracker.start_iter_timer(last_cycles + 1)
+            try:
+                ok, wall_s, cpu_s = _run_monitored_subprocess(
+                    node_runner,
+                    subprocess_name,
+                    run_script,
+                    f"jobex chunk cycles {last_cycles + 1}-{chunk_end}",
+                    kwargs,
+                )
+            finally:
+                tracker.cancel_iter_timer()
+            tracker.raise_if_iteration_timed_out(wall_s)
             tracker.update_from_directory(".")
             tracker.record_iteration(wall_s, cpu_s)
+            tracker.raise_if_energy_oscillating()
             status, error = inspect_geometry_optimization(".")
             # Persist as soon as the chunk subprocess returns. Do not use
             # energy-file length as the cycle counter: jobex `-c 10` often
@@ -359,6 +390,7 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                 f"Structure optimization did not converge in {max_opt_cycles} cycles."
             )
     finally:
+        tracker.cancel_iter_timer()
         tracker.opt_wall_s = time.monotonic() - opt_wall_start
         tracker.opt_cpu_s = _process_cpu_seconds() - opt_cpu_start
         try:
@@ -565,7 +597,6 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
 
         await _collect_turbomole_restart_files(node_runner, qm_result)
         _collect_turbomole_info_files(node_runner)
-        await cleanup_opt_snapshots(getattr(tracker, "snapshots", None), kwargs)
         node_runner.info(
             f"turbomole2 completed successfully with energy: {tout.final_energy}"
         )

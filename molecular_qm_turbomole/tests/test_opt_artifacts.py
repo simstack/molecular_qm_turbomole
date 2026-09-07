@@ -1,8 +1,10 @@
 import importlib
 import math
 import re
+import time
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from odmantic import ObjectId
@@ -17,6 +19,15 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
     should_snapshot,
     snapshot_marker,
 )
+from molecular_qm_turbomole.lib.opt_watchdog import (
+    WATCHDOG_SIDECAR,
+    OptimizationOscillationError,
+    OptimizationTimeoutError,
+    basis_weight,
+    energy_is_oscillating,
+    energy_oscillation_stats,
+    iteration_timeout_seconds,
+)
 from molecular_qm_turbomole.lib.optimization_timing import (
     attach_optimizer_timings,
     optimization_timing_table,
@@ -25,6 +36,7 @@ from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse
 from molecular_qm_turbomole.nodes.turbomole2 import (
     HEARTBEAT_INTERVAL_S,
     HEARTBEAT_LOG,
+    _append_artifact_file,
     _collect_turbomole_info_files,
     _collect_turbomole_restart_files,
     _run_optimization_chunks,
@@ -32,6 +44,24 @@ from molecular_qm_turbomole.nodes.turbomole2 import (
 )
 
 turbomole2_module = importlib.import_module("molecular_qm_turbomole.nodes.turbomole2")
+
+
+def _opt_qm_input(**overrides):
+    data = dict(
+        basis_set=SimpleNamespace(basis_set="def2-SVP"),
+        max_opt_cycles=100,
+        molecule=SimpleNamespace(
+            atoms=[SimpleNamespace(), SimpleNamespace(), SimpleNamespace()],
+            smiles="O",
+            formula="H2O",
+        ),
+        functional=SimpleNamespace(keyword=lambda: "pbe"),
+        charge=0,
+        frequencies=False,
+        scfiterlimit=50,
+    )
+    data.update(overrides)
+    return SimpleNamespace(**data)
 
 
 @pytest.fixture
@@ -265,11 +295,7 @@ async def test_run_optimization_chunks_flushes_at_ten_and_twenty(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-    )
-    await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    await _run_optimization_chunks(_opt_qm_input(), node_runner, {"node_runner": node_runner})
     assert calls["n"] == 2
     assert [steps[-1] for steps in flush_steps] == [10, 20, 20]
 
@@ -310,11 +336,7 @@ async def test_run_optimization_chunks_flushes_when_energy_has_initial_scf(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-    )
-    await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    await _run_optimization_chunks(_opt_qm_input(), node_runner, {"node_runner": node_runner})
     assert calls["n"] == 2
     assert flush_steps[0][-1] == 11
     assert all(steps[-1] == 21 for steps in flush_steps[1:])
@@ -349,11 +371,7 @@ async def test_run_optimization_chunks_flushes_on_early_convergence(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-    )
-    await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+    await _run_optimization_chunks(_opt_qm_input(), node_runner, {"node_runner": node_runner})
     assert all(steps[-1] == 7 for steps in flush_steps)
     assert flush_steps
 
@@ -386,12 +404,10 @@ async def test_run_optimization_chunks_honors_max_opt_cycles(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=5,
-    )
     with pytest.raises(RuntimeError, match="did not converge in 5 cycles"):
-        await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+        await _run_optimization_chunks(
+            _opt_qm_input(max_opt_cycles=5), node_runner, {"node_runner": node_runner}
+        )
     assert len(seen_limits) == 1
     assert "-c 5" in seen_limits[0]
 
@@ -428,12 +444,8 @@ async def test_run_optimization_chunks_includes_subprocess_output_on_running_mar
     node_runner.subprocess.side_effect = fake_subprocess
     node_runner.last_stdout = "[TM ERROR] jobex failed.\n  dscf ended abnormally"
     node_runner.last_stderr = ""
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-    )
     with pytest.raises(RuntimeError, match="jobex did not end properly") as exc_info:
-        await _run_optimization_chunks(qm_input, node_runner, {"node_runner": node_runner})
+        await _run_optimization_chunks(_opt_qm_input(), node_runner, {"node_runner": node_runner})
     assert "dscf ended abnormally" in str(exc_info.value)
 
 
@@ -465,8 +477,16 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     (tmp_path / "energy").write_text("$energy\n$end\n", encoding="utf-8")
     (tmp_path / "gradient").write_text("$grad\n$end\n", encoding="utf-8")
 
-    node_runner = SimpleNamespace(info_files=[], info=MagicMock(), warning=MagicMock())
-    _collect_turbomole_info_files(node_runner)
+    node_runner = SimpleNamespace(files=[], info_files=[], info=MagicMock(), warning=MagicMock())
+
+    def fake_from_local_file(path, **kwargs):
+        return SimpleNamespace(name=Path(path).name, in_memory=kwargs["in_memory"])
+
+    with patch(
+        "molecular_qm_turbomole.nodes.turbomole2.FileStack.from_local_file",
+        side_effect=fake_from_local_file,
+    ):
+        _collect_turbomole_info_files(node_runner)
 
     collected_names = {fs.name for fs in node_runner.info_files}
 
@@ -485,6 +505,7 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     assert "define.out" in collected_names
     assert "jobex.out" in collected_names
     assert HEARTBEAT_LOG in collected_names
+    assert all(fs.in_memory is False for fs in node_runner.info_files)
 
     # Restart files must NOT be in info_files
     for restart_name in ["control", "coord", "basis", "auxbasis", "mos", "energy", "gradient"]:
@@ -511,10 +532,17 @@ async def test_collect_turbomole_restart_files(tmp_path, monkeypatch):
     (tmp_path / "job.last").write_text("job last\n", encoding="utf-8")
     (tmp_path / "turbomole_exe_c010.log").write_text("chunk log\n", encoding="utf-8")
 
-    node_runner = SimpleNamespace(files=[], info=MagicMock(), warning=MagicMock())
+    node_runner = SimpleNamespace(files=[], info_files=[], info=MagicMock(), warning=MagicMock())
     qm_result = SimpleNamespace(files=[])
 
-    await _collect_turbomole_restart_files(node_runner, qm_result)
+    def fake_from_local_file(path, **kwargs):
+        return SimpleNamespace(name=Path(path).name, in_memory=kwargs["in_memory"])
+
+    with patch(
+        "molecular_qm_turbomole.nodes.turbomole2.FileStack.from_local_file",
+        side_effect=fake_from_local_file,
+    ):
+        await _collect_turbomole_restart_files(node_runner, qm_result)
 
     runner_files = {fs.name for fs in node_runner.files}
     result_files = {fs.name for fs in qm_result.files}
@@ -530,6 +558,7 @@ async def test_collect_turbomole_restart_files(tmp_path, monkeypatch):
     assert "hessapprox" in runner_files
     assert "optinfo" in runner_files
     assert "final_geometry.xyz" in runner_files
+    assert all(fs.in_memory is False for fs in node_runner.files)
 
     # Info files must NOT be in runner.files
     assert "job.last" not in runner_files
@@ -649,12 +678,8 @@ async def test_run_optimization_chunks_records_timings_heartbeat_and_logs(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-    )
     tracker = await _run_optimization_chunks(
-        qm_input, node_runner, {"node_runner": node_runner}
+        _opt_qm_input(), node_runner, {"node_runner": node_runner}
     )
     assert heartbeat_cls.call_count == 1
     assert heartbeat_cls.call_args.kwargs["interval_s"] == HEARTBEAT_INTERVAL_S
@@ -793,6 +818,24 @@ async def test_persist_opt_snapshot_saves_restart_archive(tmp_path, monkeypatch)
         "molecular_qm_turbomole.lib.opt_artifacts._get_db",
         lambda: FakeDB(),
     )
+
+    from simstack.models.files import FileStack as RealFileStack
+
+    original_from_local_file = RealFileStack.from_local_file
+
+    def fake_from_local_file(path, **kwargs):
+        return original_from_local_file(
+            path,
+            in_memory=True,
+            is_hashable=kwargs.get("is_hashable", True),
+            secure_source=True,
+            task_id=kwargs.get("task_id", ""),
+        )
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.FileStack.from_local_file",
+        fake_from_local_file,
+    )
     node_runner = MagicMock()
     snap = await persist_opt_snapshot(
         tmp_path,
@@ -881,18 +924,214 @@ async def test_run_optimization_chunks_writes_snapshot_every_ten(
 
     node_runner = MagicMock()
     node_runner.subprocess.side_effect = fake_subprocess
-    qm_input = SimpleNamespace(
-        basis_set=SimpleNamespace(basis_set="def2-SVP"),
-        max_opt_cycles=100,
-        functional=SimpleNamespace(keyword=lambda: "pbe"),
-        charge=0,
-        frequencies=False,
-        scfiterlimit=50,
-        molecule=SimpleNamespace(smiles="O", formula="H2O"),
-    )
     tracker = await _run_optimization_chunks(
-        qm_input, node_runner, {"node_runner": node_runner}
+        _opt_qm_input(), node_runner, {"node_runner": node_runner}
     )
     assert calls == [10]
     assert tracker.seen_snapshots == {10}
     assert len(tracker.snapshots) == 1
+
+
+@pytest.mark.asyncio
+async def test_persist_opt_charts_keeps_last_20_steps(monkeypatch):
+    saved = []
+
+    class FakeDB:
+        async def save(self, obj):
+            saved.append(obj)
+            return obj
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts._get_db",
+        lambda: FakeDB(),
+    )
+    energy = [{"step": i, "energy": float(-i)} for i in range(1, 26)]
+    grad = [{"step": i, "grad_norm": 0.1 / i} for i in range(1, 26)]
+    await persist_opt_charts(
+        energy, grad, {"task_id": str(ObjectId()), "node_runner": MagicMock()}
+    )
+    energy_charts = [chart for chart in saved if chart.series[0].yKey == "energy"]
+    grad_charts = [chart for chart in saved if chart.series[0].yKey == "grad_norm"]
+    assert [row["step"] for row in energy_charts[-1].data] == list(range(6, 26))
+    assert [row["step"] for row in grad_charts[-1].data] == list(range(6, 26))
+
+
+def test_iteration_timeout_floor_scale_and_cap():
+    assert basis_weight("STO3G") == 1.0
+    assert basis_weight("sto-3g") == 1.0
+    assert basis_weight("def2-SVP") == 2.0
+    assert basis_weight("def2-TZVP") == 4.0
+    assert basis_weight("def2-QZVP") == 8.0
+    assert basis_weight("cc-pV5Z") == 10.0
+    assert iteration_timeout_seconds(5, "def2-SVP") == 900
+    assert iteration_timeout_seconds(3, "def2-SVP") == 600
+    assert iteration_timeout_seconds(30, "def2-SVP") == 5400
+    assert iteration_timeout_seconds(50, "def2-TZVP") == 18000
+    assert iteration_timeout_seconds(100, "def2-TZVP") == 36000
+    assert iteration_timeout_seconds(200, "def2-QZVP") == 86400
+
+
+def _oscillating_energies():
+    return [
+        -76.0200,
+        -76.0000,
+        -75.9995,
+        -76.0005,
+        -75.9995,
+        -76.0005,
+        -75.9995,
+        -76.0005,
+        -75.9995,
+        -76.0005,
+        -76.0000,
+    ]
+
+
+def test_energy_oscillation_warmup_descending_and_converged():
+    oscillating = _oscillating_energies()
+    assert energy_is_oscillating(oscillating[:10], 0.05) is False
+    assert energy_is_oscillating(oscillating, 0.05) is True
+    stats = energy_oscillation_stats(oscillating, 0.05)
+    assert stats is not None
+    assert stats["sign_flips"] >= 4
+
+    descending = [-76.0 - 0.001 * i for i in range(11)]
+    assert energy_is_oscillating(descending, 0.05) is False
+
+    assert energy_is_oscillating(oscillating, 1e-4) is False
+
+
+def test_hung_watchdog_writes_sidecar_and_exits(tmp_path, monkeypatch):
+    tracker = OptimizationChartTracker({}, qm_input=_opt_qm_input())
+    tracker.iteration_timeout = 1
+    monkeypatch.chdir(tmp_path)
+    killed = {}
+
+    def fake_exit(code):
+        killed["code"] = code
+        raise SystemExit(code)
+
+    with patch("molecular_qm_turbomole.lib.opt_artifacts.os._exit", fake_exit):
+        with patch(
+            "molecular_qm_turbomole.lib.opt_artifacts.os.kill",
+            side_effect=OSError("skip posix"),
+        ):
+            try:
+                tracker._on_iteration_hung()
+            except SystemExit:
+                pass
+    assert killed.get("code") == 1
+    sidecar = tmp_path / WATCHDOG_SIDECAR
+    assert sidecar.exists()
+    assert "watchdog" in sidecar.read_text(encoding="utf-8").lower()
+
+
+def test_tracker_raises_on_slow_iteration():
+    tracker = OptimizationChartTracker({}, qm_input=_opt_qm_input())
+    tracker.iteration_timeout = 0.01
+    tracker._watchdog_geom_iter = 1
+    with pytest.raises(OptimizationTimeoutError, match="limit 0.01s"):
+        tracker.raise_if_iteration_timed_out(0.05)
+
+
+def test_tracker_raises_on_oscillating_energy():
+    tracker = OptimizationChartTracker({})
+    oscillating = _oscillating_energies()
+    for i, energy in enumerate(oscillating, start=1):
+        tracker.energy_history.append({"step": i, "energy": energy})
+        tracker.grad_history.append({"step": i, "grad_norm": 0.05})
+    with pytest.raises(OptimizationOscillationError, match="oscillating"):
+        tracker.raise_if_energy_oscillating()
+
+
+def test_with_runner_output_appends_watchdog_sidecar(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / WATCHDOG_SIDECAR).write_text(
+        "Optimization iteration watchdog: jobex chunk did not return\n",
+        encoding="utf-8",
+    )
+    runner = SimpleNamespace(last_stderr="", last_stdout="")
+    message = _with_runner_output(runner, "Geometry optimization failed")
+    assert message.startswith("Geometry optimization failed")
+    assert "watchdog" in message.lower()
+
+
+def test_append_artifact_file_skips_duplicates(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "control"
+    target.write_text("$title\n", encoding="utf-8")
+    existing = SimpleNamespace(name="control")
+    node_runner = SimpleNamespace(
+        files=[existing],
+        info_files=[],
+        task_id="task-1",
+        info=MagicMock(),
+    )
+    with patch(
+        "molecular_qm_turbomole.nodes.turbomole2.FileStack.from_local_file"
+    ) as mocked:
+        _append_artifact_file(node_runner, target, in_memory=False)
+    mocked.assert_not_called()
+    assert node_runner.files == [existing]
+
+
+def test_append_artifact_file_not_in_memory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "control"
+    target.write_text("$title\n", encoding="utf-8")
+    created = []
+
+    def fake_from_local_file(path, **kwargs):
+        fs = SimpleNamespace(name=Path(path).name, in_memory=kwargs["in_memory"], task_id=kwargs["task_id"])
+        created.append(fs)
+        return fs
+
+    node_runner = SimpleNamespace(
+        files=[],
+        info_files=[],
+        task_id="task-1",
+        info=MagicMock(),
+    )
+    with patch(
+        "molecular_qm_turbomole.nodes.turbomole2.FileStack.from_local_file",
+        side_effect=fake_from_local_file,
+    ):
+        _append_artifact_file(node_runner, target, in_memory=False)
+    assert created[0].in_memory is False
+    assert created[0].task_id == "task-1"
+    assert node_runner.files[0] is created[0]
+    assert node_runner.info_files == []
+
+
+@pytest.mark.asyncio
+async def test_run_optimization_chunks_times_out_slow_chunk(
+    tmp_path, monkeypatch, patch_heartbeat
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.iteration_timeout_seconds",
+        lambda n_atoms, basis_name: 0.01,
+    )
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
+    )
+
+    def fake_subprocess(name, command, cwd=""):
+        time.sleep(0.05)
+        _write_energy(tmp_path, 1)
+        _write_gradient(tmp_path, 1)
+        (tmp_path / "GEO_OPT_CONVERGED").write_text("CONVERGED\n", encoding="utf-8")
+        return True
+
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    with patch.object(OptimizationChartTracker, "_on_iteration_hung"):
+        with pytest.raises(OptimizationTimeoutError, match="limit 0.01s"):
+            await _run_optimization_chunks(
+                _opt_qm_input(), node_runner, {"node_runner": node_runner}
+            )
