@@ -82,6 +82,9 @@ gmx_mdrun.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
 gmx_energy.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
 get_file.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
 
+[big.program.turbomole2]
+use_tmp = true
+
 
 [local.program]
 psi4_calculator.docker_image = "docker.io/library/molecular-qm-psi4:latest"
