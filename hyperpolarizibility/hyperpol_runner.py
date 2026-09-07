@@ -257,12 +257,14 @@ async def hyperpol_runner(
         )
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        failures: List[str] = []
         for (functional_enum, basis_set), result in zip(combos, results):
             error = None
             table = None
+            combo_name = f"{functional_enum.value} / {basis_set}"
             if isinstance(result, Exception):
                 error = child_exception_text(result, node_name="hyperpolarizibility")
-                node_runner.error(f"{functional_enum.value} / {basis_set} failed: {error}")
+                node_runner.error(f"{combo_name} failed: {error}")
             else:
                 table = _child_hyperpol_table(result)
                 if not _is_completed(result):
@@ -271,9 +273,11 @@ async def hyperpol_runner(
                         or getattr(getattr(result, "record", None), "error", None)
                         or "hyperpolarizibility did not complete"
                     )
-                    node_runner.error(f"{functional_enum.value} / {basis_set} did not complete: {error}")
+                    node_runner.error(f"{combo_name} did not complete: {error}")
                 else:
-                    node_runner.info(f"{functional_enum.value} / {basis_set} completed.")
+                    node_runner.info(f"{combo_name} completed.")
+            if error:
+                failures.append(f"{combo_name}: {error}")
             row = _hyperpol_dataset_row(
                 basis_set=basis_set,
                 functional=functional_enum,
@@ -285,6 +289,11 @@ async def hyperpol_runner(
 
         await dataset.save(context.db)
         node_runner.dataset = dataset
+        if failures:
+            raise RuntimeError(
+                f"{len(failures)} of {len(combos)} hyperpolarizibility jobs failed: "
+                + "; ".join(failures)
+            )
         return node_runner.succeed()
     except Exception as exc:
         message = child_exception_text(exc)
