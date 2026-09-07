@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.10.0 (2026-09-07)
+
+### Chores
+
+- Enhance package upgrade script with lock syncing and git automation
+  ([`05f9779`](https://github.com/simstack/molecular_qm_turbomole/commit/05f9779058a034c120607b28b070ba73f7b4cd98))
+
+### Features
+
+- Improve error handling and reporting in hyperpolarizibility runner
+  ([`7abb65e`](https://github.com/simstack/molecular_qm_turbomole/commit/7abb65efe087faa98598def63213945486d5de9e))
+
+
 ## v0.9.0 (2026-09-05)
 
 
