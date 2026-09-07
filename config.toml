@@ -138,6 +138,9 @@ run_command = "orca orca.inp > orca.out"
 use_tmp = false
 run_command = "vasp_std"
 
+[local.program.turbomole2]
+use_tmp = true
+
 [local.program.simstack-crest]
 use_tmp = false
 # On local resources we default to Docker instead of Apptainer. The
@@ -182,6 +185,9 @@ run_command = "$ORCA_HOME/orca orca.inp > orca.out"
 use_tmp = false
 scripts = [ "source ~/.bashrc", "module load vasp" ]
 run_command = "srun vasp_std"
+
+[int-nano.program.turbomole2]
+use_tmp = true
 
 [int-nano.program.simstack-crest]
 use_tmp = false
@@ -309,6 +315,9 @@ use_tmp = false
 scripts = [ "source ~/.bashrc", "module load vasp" ]
 run_command = "srun vasp_std"
 
+[int-nano-jinja.program.turbomole2]
+use_tmp = true
+
 [int-nano-jinja.program.simstack-crest]
 use_tmp = false
 # Preferred Apptainer-based configuration for the CREST/simstack-crest
@@ -369,6 +378,9 @@ input_files = ["orca.inp", "orca.gbw", "orca.xyz"]
 output_files = ["orca.log", "orca.gbw"]
 run_command = "$ORCA_HOME/orca orca.inp > orca.out"
 
+[justus.program.turbomole2]
+use_tmp = true
+
 [horeka.program.orca_5]
 use_tmp = true
 environment_modules = [""]
@@ -389,6 +401,9 @@ run_command = "${ORCA_HOME}/orca orca.inp > orca.out"
 manual_env_setting_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/bin:/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi418"]
 manual_env_setting_LD_LIBRARY_PATH=["/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/lib/:/home/hk-project-p0023945/is2364/soft/openmpi_4_1_8/lib/openmpi:/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi411"]
 manual_ORCA_HOME=["/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x86-64_shared_openmpi418/"]
+
+[horeka.program.turbomole2]
+use_tmp = true
 
 
 

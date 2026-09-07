@@ -458,18 +458,21 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}"
     )
 
+    enter_scratch = getattr(node_runner, "enter_scratch", None)
+    if callable(enter_scratch):
+        enter_scratch("turbomole2")
     try:
-        _validate_request(qm_input)
-    except Exception as exc:
-        _fail(node_runner, f"Invalid TURBOMOLE input settings: {exc}")
+        try:
+            _validate_request(qm_input)
+        except Exception as exc:
+            _fail(node_runner, f"Invalid TURBOMOLE input settings: {exc}")
 
-    try:
-        TurbomoleInputWriter(qm_input).write_files()
-        node_runner.info("Input files generated")
-    except Exception as exc:
-        _fail(node_runner, f"Error creating Turbomole input files: {exc}")
+        try:
+            TurbomoleInputWriter(qm_input).write_files()
+            node_runner.info("Input files generated")
+        except Exception as exc:
+            _fail(node_runner, f"Error creating Turbomole input files: {exc}")
 
-    try:
         define_script = prepend_tm_env(build_define_script())
         if not node_runner.subprocess("turbomole_define", define_script):
             raise RuntimeError("Execution of Turbomole define failed")
@@ -571,3 +574,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         await _collect_turbomole_restart_files(node_runner)
         _collect_turbomole_info_files(node_runner)
         _fail(node_runner, _with_runner_output(node_runner, f"Turbomole calculation failed: {exc}"))
+    finally:
+        leave_scratch = getattr(node_runner, "leave_scratch", None)
+        if callable(leave_scratch):
+            leave_scratch()
