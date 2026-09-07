@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.13.0 (2026-09-07)
+
+### Features
+
+- Add hyperpolarizibility2 node for one m3/m5 opt and a method sweep
+  ([`cfcb317`](https://github.com/simstack/molecular_qm_turbomole/commit/cfcb317c391a8e7a555d022659b9c5e55b5198ff))
+
+
 ## v0.12.0 (2026-09-07)
 
 
