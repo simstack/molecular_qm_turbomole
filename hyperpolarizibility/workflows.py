@@ -402,6 +402,86 @@ async def _ensure_db_molecule(molecule: Any) -> Molecule:
     return await context.db.save(normalized)
 
 
+async def optimize_geometry_m3_m5(
+    optimization_qm_input: TurbomoleQMInput2,
+    frequency_tolerance: float,
+    node_runner: NodeRunner,
+    child_kwargs: dict,
+    grids_used: list[str],
+    record: Optional[HyperPolarizationRecord] = None,
+) -> Molecule:
+    """Optimize with frequencies; retry grid m5 if the original grid fails the check."""
+    frequencies_ok = False
+    failed_frequencies: dict[str, str] = {}
+    optimization_call_result = None
+    optimization_result = None
+    grid_sizes = _optimization_grid_sizes(optimization_qm_input.gridsize)
+    for grid_size in grid_sizes:
+        optimization_qm_input.gridsize = grid_size
+        optimization_input = _build_optimization_input(optimization_qm_input)
+        grids_used.append(grid_size)
+        node_runner.info(f"Running turbomole2 optimization with grid size {grid_size}.")
+        optimization_call_result = await _run_turbomole_inline(
+            optimization_input, child_kwargs, custom_name=grid_size
+        )
+        optimization_result = _extract_qm_result(optimization_call_result) or optimization_call_result
+        if not (_is_completed(optimization_call_result) or _is_completed(optimization_result)):
+            _fail_workflow(
+                node_runner,
+                record,
+                "OPT",
+                f"Optimization step did not complete successfully ({_result_debug(optimization_result)}).",
+            )
+        if getattr(optimization_result, "scf_converged", None) is False:
+            _fail_workflow(node_runner, record, "SCF", "SCF did not converge")
+
+        frequencies_ok, failed_frequencies = _check_vibrational_frequencies(
+            optimization_call_result,
+            frequency_tolerance,
+        )
+        if not frequencies_ok and "missing" in failed_frequencies:
+            frequencies_ok, failed_frequencies = _check_vibrational_frequencies(
+                optimization_result,
+                frequency_tolerance,
+            )
+        if "missing" in failed_frequencies:
+            _fail_workflow(
+                node_runner,
+                record,
+                "NOFREQ",
+                "No vibrational frequencies found in optimization result.",
+            )
+        if frequencies_ok:
+            node_runner.info(f"Vibrational frequencies within threshold for grid {grid_size}.")
+            break
+        if grid_size != grid_sizes[-1]:
+            node_runner.warning(
+                "Vibrational frequencies exceed threshold. retrying with gridsize m5"
+            )
+
+    if not frequencies_ok:
+        error_details = ", ".join(f"{index}: {value}" for index, value in failed_frequencies.items())
+        _fail_workflow(
+            node_runner,
+            record,
+            f"BADFREQ: {error_details}",
+            f"Vibrational frequencies exceed threshold: {error_details}",
+        )
+
+    optimized_structure = _extract_structure_from_result(optimization_call_result, node_runner)
+    if optimized_structure is None:
+        _fail_workflow(
+            node_runner,
+            record,
+            "NOSTRUCT",
+            "Optimization step produced no usable structure for the hyperpolarizability step "
+            f"({_result_debug(optimization_result)}).",
+        )
+    optimized_structure = await _ensure_db_molecule(optimized_structure)
+    write_final_geometry_xyz(optimized_structure, WORKFLOW_FINAL_STRUCTURE_XYZ)
+    return optimized_structure
+
+
 def _extract_structure_from_result(result: Any, node_runner: NodeRunner) -> Optional[Molecule]:
     for local_name in (WORKFLOW_FINAL_STRUCTURE_XYZ, "final_geometry.xyz"):
         path = Path(local_name)
@@ -482,74 +562,14 @@ async def hyperpolarizibility(
         optimization_qm_input = _copy_qm_input(optimization_qm_input)
         optimization_qm_input.molecule = hyperpolarization_record.molecule
 
-        frequencies_ok = False
-        failed_frequencies: dict[str, str] = {}
-        optimization_call_result = None
-        optimization_result = None
-        grid_sizes = _optimization_grid_sizes(optimization_qm_input.gridsize)
-        for grid_size in grid_sizes:
-            optimization_qm_input.gridsize = grid_size
-            optimization_input = _build_optimization_input(optimization_qm_input)
-            hyperpolarization_record.grids_used.append(grid_size)
-            node_runner.info(f"Running turbomole2 optimization with grid size {grid_size}.")
-            optimization_call_result = await _run_turbomole_inline(
-                optimization_input, child_kwargs, custom_name=grid_size
-            )
-            optimization_result = _extract_qm_result(optimization_call_result) or optimization_call_result
-            if not (_is_completed(optimization_call_result) or _is_completed(optimization_result)):
-                _fail_workflow(
-                    node_runner,
-                    hyperpolarization_record,
-                    "OPT",
-                    f"Optimization step did not complete successfully ({_result_debug(optimization_result)}).",
-                )
-            if getattr(optimization_result, "scf_converged", None) is False:
-                _fail_workflow(node_runner, hyperpolarization_record, "SCF", "SCF did not converge")
-
-            frequencies_ok, failed_frequencies = _check_vibrational_frequencies(
-                optimization_call_result,
-                hyperpolarizability_settings.frequency_tolerance,
-            )
-            if not frequencies_ok and "missing" in failed_frequencies:
-                frequencies_ok, failed_frequencies = _check_vibrational_frequencies(
-                    optimization_result,
-                    hyperpolarizability_settings.frequency_tolerance,
-                )
-            if "missing" in failed_frequencies:
-                _fail_workflow(
-                    node_runner,
-                    hyperpolarization_record,
-                    "NOFREQ",
-                    "No vibrational frequencies found in optimization result.",
-                )
-            if frequencies_ok:
-                node_runner.info(f"Vibrational frequencies within threshold for grid {grid_size}.")
-                break
-            if grid_size != grid_sizes[-1]:
-                node_runner.warning(
-                    "Vibrational frequencies exceed threshold. retrying with gridsize m5"
-                )
-
-        if not frequencies_ok:
-            error_details = ", ".join(f"{index}: {value}" for index, value in failed_frequencies.items())
-            _fail_workflow(
-                node_runner,
-                hyperpolarization_record,
-                f"BADFREQ: {error_details}",
-                f"Vibrational frequencies exceed threshold: {error_details}",
-            )
-
-        optimized_structure = _extract_structure_from_result(optimization_call_result, node_runner)
-        if optimized_structure is None:
-            _fail_workflow(
-                node_runner,
-                hyperpolarization_record,
-                "NOSTRUCT",
-                "Optimization step produced no usable structure for the hyperpolarizability step "
-                f"({_result_debug(optimization_result)}).",
-            )
-        optimized_structure = await _ensure_db_molecule(optimized_structure)
-        write_final_geometry_xyz(optimized_structure, WORKFLOW_FINAL_STRUCTURE_XYZ)
+        optimized_structure = await optimize_geometry_m3_m5(
+            optimization_qm_input,
+            hyperpolarizability_settings.frequency_tolerance,
+            node_runner,
+            child_kwargs,
+            hyperpolarization_record.grids_used,
+            hyperpolarization_record,
+        )
 
         node_runner.info("Running turbomole2 hyperpolarizability step.")
         hyperpol_input = _build_hyperpol_input(

@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from hyperpolarizibility.hyperpolarization_record import HyperPolarizationRecord
+from hyperpolarizibility.hyperpolarization_record import (
+    HyperPolarizationRecord,
+    HyperPolarizationRecord2,
+)
 from hyperpolarizibility.workflows import beta_zzz_by_pair
 from molecular_qm_util import compute_iupac_name, compute_smiles
 from simstack.core.context import context
@@ -29,11 +32,15 @@ def _scalar_label(value, nested_attr: str) -> str:
     return text or "N/A"
 
 
-def _functional_label(record: HyperPolarizationRecord) -> str:
+def _functional_label(record) -> str:
+    if isinstance(record, HyperPolarizationRecord2):
+        return _scalar_label(getattr(record, "hyperpolarizability_functional", None), "functional")
     return _scalar_label(getattr(record, "functional", None), "functional")
 
 
-def _basis_label(record: HyperPolarizationRecord) -> str:
+def _basis_label(record) -> str:
+    if isinstance(record, HyperPolarizationRecord2):
+        return _scalar_label(getattr(record, "hyperpolarizability_basis_set", None), "basis_set")
     return _scalar_label(getattr(record, "basis_set", None), "basis_set")
 
 
@@ -44,7 +51,7 @@ def _display_label(value) -> str:
     return text
 
 
-def _wavelength_label(record: HyperPolarizationRecord) -> str:
+def _wavelength_label(record) -> str:
     value = getattr(record, "wavelength", None)
     if value is None:
         return "N/A"
@@ -80,7 +87,8 @@ async def hyperpolarization_records_to_table(
     date_info: StringData, **kwargs
 ) -> SimstackResult:
     """
-    Convert stored HyperPolarizationRecord documents into a table of beta_zzz values.
+    Convert stored HyperPolarizationRecord and HyperPolarizationRecord2 documents
+    into a table of beta_zzz values.
 
     Runs on the host (resource self). Missing SMILES/formula are computed and
     written back to the molecule. This node does not need TURBOMOLE or int-nano.
@@ -99,14 +107,20 @@ async def hyperpolarization_records_to_table(
     except (ValueError, TypeError) as exc:
         node_runner.info(f"Invalid date format: {date_info.value}. Error: {exc}")
 
-    records = await context.db.find(HyperPolarizationRecord)
-    node_runner.info(f"Found {len(records)} HyperPolarizationRecords.")
+    records = list(await context.db.find(HyperPolarizationRecord))
+    records.extend(await context.db.find(HyperPolarizationRecord2))
+    node_runner.info(
+        f"Found {len(records)} hyperpolarization records "
+        f"(HyperPolarizationRecord and HyperPolarizationRecord2)."
+    )
 
     simple_table = SimpleTable(name="Hyperpolarization Results")
     simple_table.add_column("Started At", "string")
     simple_table.add_column("Molecule (SMILES)", "string")
     simple_table.add_column("Formula", "string")
     simple_table.add_column("Wavelength", "string")
+    simple_table.add_column("Optimization Functional", "string")
+    simple_table.add_column("Optimization Basis Set", "string")
     simple_table.add_column("Functional", "string")
     simple_table.add_column("Basis Set", "string")
     simple_table.add_column("beta_pair_1_zzz_1e30_esu", "float")
@@ -130,11 +144,19 @@ async def hyperpolarization_records_to_table(
             smiles = _display_label(molecule.smiles)
             formula = _display_label(molecule.formula)
         betas = beta_zzz_by_pair(record.hyperpol)
+        if isinstance(record, HyperPolarizationRecord2):
+            optimization_functional = _scalar_label(record.optimization_functional, "functional")
+            optimization_basis_set = _scalar_label(record.optimization_basis_set, "basis_set")
+        else:
+            optimization_functional = _functional_label(record)
+            optimization_basis_set = _basis_label(record)
         row = {
             "Started At": record.started_at.isoformat() if record.started_at else None,
             "Molecule (SMILES)": smiles,
             "Formula": formula,
             "Wavelength": _wavelength_label(record),
+            "Optimization Functional": optimization_functional,
+            "Optimization Basis Set": optimization_basis_set,
             "Functional": _functional_label(record),
             "Basis Set": _basis_label(record),
             "beta_pair_1_zzz_1e30_esu": betas.get(1),
@@ -148,6 +170,8 @@ async def hyperpolarization_records_to_table(
             f"molecule_smiles={row['Molecule (SMILES)']}, "
             f"formula={row['Formula']}, "
             f"wavelength={row['Wavelength']}, "
+            f"optimization_functional={row['Optimization Functional']}, "
+            f"optimization_basis_set={row['Optimization Basis Set']}, "
             f"functional={row['Functional']}, "
             f"basis_set={row['Basis Set']}, "
             f"beta_pair_1_zzz_1e30_esu={row['beta_pair_1_zzz_1e30_esu']}, "
