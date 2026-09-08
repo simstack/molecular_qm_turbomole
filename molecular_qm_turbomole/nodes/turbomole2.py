@@ -297,7 +297,12 @@ def _collect_turbomole_info_files(node_runner) -> None:
         if fname in restart_names:
             continue
         try:
-            _append_artifact_file(node_runner, p, in_memory=False, info_only=True)
+            _append_artifact_file(
+                node_runner,
+                p,
+                in_memory=fname == "hyperpols",
+                info_only=True,
+            )
         except Exception as e:
             node_runner.warning(f"Failed to attach Turbomole info file {fname}: {e}")
 

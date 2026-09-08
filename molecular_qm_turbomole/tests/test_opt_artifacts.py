@@ -466,6 +466,8 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     (tmp_path / "define.inp").write_text("define inp\n", encoding="utf-8")
     (tmp_path / "define.out").write_text("define out\n", encoding="utf-8")
     (tmp_path / "jobex.out").write_text("jobex out\n", encoding="utf-8")
+    (tmp_path / "escf.out").write_text("escf out\n", encoding="utf-8")
+    (tmp_path / "hyperpols").write_text("hyperpols content\n", encoding="utf-8")
     (tmp_path / HEARTBEAT_LOG).write_text("heartbeat\n", encoding="utf-8")
 
     # Create restart files (which must NOT be added to info_files)
@@ -504,8 +506,14 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     assert "define.inp" in collected_names
     assert "define.out" in collected_names
     assert "jobex.out" in collected_names
+    assert "escf.out" in collected_names
+    assert "hyperpols" in collected_names
     assert HEARTBEAT_LOG in collected_names
-    assert all(fs.in_memory is False for fs in node_runner.info_files)
+    hyperpols_fs = next(fs for fs in node_runner.info_files if fs.name == "hyperpols")
+    assert hyperpols_fs.in_memory is True
+    assert all(
+        fs.in_memory is False for fs in node_runner.info_files if fs.name != "hyperpols"
+    )
 
     # Restart files must NOT be in info_files
     for restart_name in ["control", "coord", "basis", "auxbasis", "mos", "energy", "gradient"]:
