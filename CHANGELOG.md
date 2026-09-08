@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.15.0 (2026-09-08)
+
+### Chores
+
+- Update packages
+  ([`e20ccd9`](https://github.com/simstack/molecular_qm_turbomole/commit/e20ccd96bd95120e48b730b16fd516efc0f64098))
+
+### Features
+
+- Persist hyperpols as an in-memory info file when it exists.
+  ([`7132edb`](https://github.com/simstack/molecular_qm_turbomole/commit/7132edb0742e6095f4a9116162e920da46a0f871))
+
+
 ## v0.14.0 (2026-09-07)
 
 
