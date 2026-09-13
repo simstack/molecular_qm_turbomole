@@ -26,7 +26,7 @@ from hyperpolarizibility.workflows import (
 from molecular_qm_models.density_functional import Functional, FunctionalEnum
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
-from molecular_qm_turbomole.lib.env import build_ground_state_script
+from molecular_qm_turbomole.lib.env import build_frequency_script
 from molecular_qm_turbomole.lib.output_parser import parse_vibspectrum_file
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
@@ -176,23 +176,10 @@ def test_frequency_check_allows_small_imaginary_mode_within_tolerance():
     assert ok
 
 
-def test_ground_state_script_runs_aoforce_when_frequencies_requested():
-    script = build_ground_state_script(
-        optimization=True,
-        use_ri=True,
-        gradients=False,
-        frequencies=True,
-    )
-    assert "jobex -ri" in script
+def test_frequency_script_runs_aoforce_and_requires_vibspectrum():
+    script = build_frequency_script()
     assert "aoforce > aoforce.out" in script
     assert "test -f vibspectrum" in script
-    without = build_ground_state_script(
-        optimization=True,
-        use_ri=True,
-        gradients=False,
-        frequencies=False,
-    )
-    assert "aoforce" not in without
 
 
 def test_parse_vibspectrum_file(tmp_path):

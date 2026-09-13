@@ -11,9 +11,7 @@ from molecular_qm_models.molecule import MoleculeList
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.control_utils import append_control_groups
 from molecular_qm_turbomole.lib.env import (
-    build_define_script,
     build_frequency_script,
-    build_ground_state_script,
     build_hyperpolarizability_script,
     prepend_tm_env,
 )
@@ -35,7 +33,6 @@ from molecular_qm_turbomole.lib.hyperpol import (
 )
 from molecular_qm_turbomole.lib.input_writer import (
     TurbomoleInputWriter,
-    should_use_ri,
 )
 from molecular_qm_turbomole.lib.output_parser import (
     TurbomoleOutputParser,
@@ -88,8 +85,10 @@ def _process_cpu_seconds() -> float:
     return float(times.user + times.system + times.children_user + times.children_system)
 
 
-def _run_monitored_subprocess(node_runner, name, script, prefix, kwargs):
-    """Run a TURBOMOLE subprocess with heartbeat progress lines and wall/CPU timing."""
+def _run_monitored_subprocess(
+    node_runner, name, prefix, kwargs, command="run_command", script=None
+):
+    """Run a TURBOMOLE command with heartbeat progress lines and wall/CPU timing."""
     task_id = ""
     if kwargs:
         task_id = str(kwargs.get("task_id") or getattr(node_runner, "task_id", "") or "")
@@ -110,7 +109,15 @@ def _run_monitored_subprocess(node_runner, name, script, prefix, kwargs):
     wall_start = time.monotonic()
     cpu_start = _process_cpu_seconds()
     try:
-        ok = node_runner.subprocess(name, script)
+        if script is not None:
+            ok = node_runner.subprocess(name, script)
+        else:
+            ok = context.resource_config.run(
+                "turbomole",
+                node_runner=node_runner,
+                command=command,
+                name=name,
+            )
     finally:
         wall_s = time.monotonic() - wall_start
         cpu_s = _process_cpu_seconds() - cpu_start
@@ -319,15 +326,8 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
     try:
         while last_cycles < max_opt_cycles:
             chunk = min(OPT_CHART_INTERVAL, max_opt_cycles - last_cycles)
-            run_script = prepend_tm_env(
-                build_ground_state_script(
-                    optimization=True,
-                    use_ri=should_use_ri(qm_input),
-                    gradients=False,
-                    frequencies=False,
-                    max_cycles=chunk,
-                )
-            )
+            Path("turbomole_opt_cycles").write_text(str(int(chunk)), encoding="utf-8")
+            Path("turbomole_gradients").unlink(missing_ok=True)
             chunk_end = last_cycles + chunk
             subprocess_name = f"turbomole_exe_c{chunk_end:03d}"
             node_runner.info(
@@ -339,7 +339,6 @@ async def _run_optimization_chunks(qm_input: TurbomoleQMInput2, node_runner, kwa
                 ok, wall_s, cpu_s = _run_monitored_subprocess(
                     node_runner,
                     subprocess_name,
-                    run_script,
                     f"jobex chunk cycles {last_cycles + 1}-{chunk_end}",
                     kwargs,
                 )
@@ -415,9 +414,9 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
             ok, freq_wall_s, freq_cpu_s = _run_monitored_subprocess(
                 node_runner,
                 "turbomole_aoforce",
-                freq_script,
                 "Frequency/aoforce calculation",
                 kwargs,
+                script=freq_script,
             )
             attach_optimizer_timings(
                 node_runner,
@@ -434,25 +433,17 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
                 )
         return tracker
 
-    run_script = prepend_tm_env(
-        build_ground_state_script(
-            optimization=False,
-            use_ri=should_use_ri(qm_input),
-            gradients=bool(qm_input.gradients),
-            frequencies=bool(qm_input.frequencies),
-        )
-    )
-    ok, wall_s, cpu_s = _run_monitored_subprocess(
+    Path("turbomole_opt_cycles").unlink(missing_ok=True)
+    if qm_input.gradients:
+        Path("turbomole_gradients").write_text("1", encoding="utf-8")
+    else:
+        Path("turbomole_gradients").unlink(missing_ok=True)
+    ok, _, _ = _run_monitored_subprocess(
         node_runner,
         "turbomole_exe",
-        run_script,
         "TURBOMOLE ground-state calculation",
         kwargs,
     )
-    if qm_input.frequencies:
-        attach_optimizer_timings(
-            node_runner, None, freq_wall_s=wall_s, freq_cpu_s=cpu_s
-        )
     if not ok:
         raise RuntimeError(
             _with_runner_output(
@@ -460,6 +451,25 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
                 "Turbomole ground-state calculation failed. Check turbomole_exe.log.",
             )
         )
+    if qm_input.frequencies:
+        freq_script = prepend_tm_env(build_frequency_script())
+        ok, freq_wall_s, freq_cpu_s = _run_monitored_subprocess(
+            node_runner,
+            "turbomole_aoforce",
+            "Frequency/aoforce calculation",
+            kwargs,
+            script=freq_script,
+        )
+        attach_optimizer_timings(
+            node_runner, None, freq_wall_s=freq_wall_s, freq_cpu_s=freq_cpu_s
+        )
+        if not ok:
+            raise RuntimeError(
+                _with_runner_output(
+                    node_runner,
+                    "Turbomole frequency calculation failed. Check turbomole_aoforce.log.",
+                )
+            )
     return None
 
 
@@ -467,6 +477,12 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
 async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     """
     TURBOMOLE node for single-point, geometry optimization, and first hyperpolarizability (beta).
+
+    ``define`` and the ground-state calculation are launched with
+    ``ResourceConfig.run("turbomole")`` from ``[<resource>.program.turbomole]``
+    (``define_command`` and ``run_command``). Optimization chunks write
+    ``turbomole_opt_cycles``; single-point gradient jobs write
+    ``turbomole_gradients`` so ``run_command`` can select jobex vs ridft.
 
     Parameters:
         qm_input (TurbomoleQMInput2): Calculation settings and molecule.
@@ -510,8 +526,13 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         except Exception as exc:
             _fail(node_runner, f"Error creating Turbomole input files: {exc}")
 
-        define_script = prepend_tm_env(build_define_script())
-        if not node_runner.subprocess("turbomole_define", define_script):
+        ok = context.resource_config.run(
+            "turbomole",
+            node_runner=node_runner,
+            command="define_command",
+            name="turbomole_define",
+        )
+        if not ok:
             raise RuntimeError("Execution of Turbomole define failed")
         if not Path("./control").exists():
             raise RuntimeError(
@@ -538,9 +559,9 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             ok, _, _ = _run_monitored_subprocess(
                 node_runner,
                 "turbomole_response",
-                response_script,
                 "TURBOMOLE hyperpolarizability (escf)",
                 kwargs,
+                script=response_script,
             )
             if not ok:
                 raise RuntimeError(

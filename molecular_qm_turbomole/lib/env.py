@@ -53,26 +53,6 @@ command -v define >/dev/null 2>&1 || {{
     return prelude + "\n" + run_script
 
 
-def build_define_script() -> str:
-    lines = [
-        'echo "[TM] workdir: $(pwd)"',
-        'echo "[TM] define: $(command -v define)"',
-        "define < define.inp > define.out 2>&1",
-        'if grep -qi "define ended abnormally" define.out; then',
-        '  echo "[TM ERROR] define output indicates abnormal termination."',
-        "  tail -n 120 define.out || true",
-        "  exit 2",
-        "fi",
-        "if [ ! -f control ]; then",
-        '  echo "[TM ERROR] define finished but no control file was created."',
-        "  tail -n 120 define.out || true",
-        "  exit 2",
-        "fi",
-        'echo "[TM] define completed successfully"',
-    ]
-    return "\n".join(lines)
-
-
 def _aoforce_script_lines() -> list[str]:
     return [
         "aoforce > aoforce.out 2>&1 || { "
@@ -97,54 +77,6 @@ def build_frequency_script() -> str:
         'echo "[TM] produced files:"',
         "ls -la",
     ]
-    return "\n".join(lines)
-
-
-def build_ground_state_script(
-    *,
-    optimization: bool,
-    use_ri: bool,
-    gradients: bool,
-    frequencies: bool = False,
-    max_cycles: int | None = None,
-) -> str:
-    scf_program = "ridft" if use_ri else "dscf"
-    gradient_program = "rdgrad" if use_ri else "grad"
-    jobex_command = "jobex -ri" if use_ri else "jobex"
-    if max_cycles is not None:
-        jobex_command = f"{jobex_command} -c {int(max_cycles)}"
-    lines = [
-        'echo "[TM] workdir: $(pwd)"',
-        f'echo "[TM] SCF engine: {scf_program}"',
-    ]
-    if optimization:
-        lines.append(
-            f"{jobex_command} > jobex.out 2>&1 || {{ "
-            'echo "[TM ERROR] jobex failed."; '
-            "tail -n 200 jobex.out || true; "
-            "exit 21; "
-            "}"
-        )
-    else:
-        lines.append(
-            f"{scf_program} > {scf_program}.out 2>&1 || {{ "
-            f'echo "[TM ERROR] {scf_program} failed."; '
-            f"tail -n 200 {scf_program}.out || true; "
-            "exit 22; "
-            "}"
-        )
-        if gradients:
-            lines.append(
-                f"{gradient_program} > {gradient_program}.out 2>&1 || {{ "
-                f'echo "[TM ERROR] {gradient_program} failed."; '
-                f"tail -n 200 {gradient_program}.out || true; "
-                "exit 23; "
-                "}"
-            )
-    if frequencies:
-        lines.extend(_aoforce_script_lines())
-    lines.append('echo "[TM] produced files:"')
-    lines.append("ls -la")
     return "\n".join(lines)
 
 

@@ -85,6 +85,27 @@ get_file.docker_image =  "docker.io/library/molecular-dynamics-gromacs:latest"
 [big.program.turbomole2]
 use_tmp = true
 
+[big.program.turbomole]
+define_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+define < define.inp > define.out 2>&1
+"""
+run_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
+
 
 [local.program]
 psi4_calculator.docker_image = "docker.io/library/molecular-qm-psi4:latest"
@@ -144,6 +165,23 @@ run_command = "vasp_std"
 [local.program.turbomole2]
 use_tmp = true
 
+[local.program.turbomole]
+# define_command / run_command are executed via ResourceConfig.run.
+# run_command: if turbomole_opt_cycles exists, run jobex -c <n>; else ridft
+# (and rdgrad when turbomole_gradients exists).
+define_command = "define < define.inp > define.out 2>&1"
+run_command = """
+set -e
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
+
 [local.program.simstack-crest]
 use_tmp = false
 # On local resources we default to Docker instead of Apptainer. The
@@ -191,6 +229,27 @@ run_command = "srun vasp_std"
 
 [int-nano.program.turbomole2]
 use_tmp = true
+
+[int-nano.program.turbomole]
+define_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+define < define.inp > define.out 2>&1
+"""
+run_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
 
 [int-nano.program.simstack-crest]
 use_tmp = false
@@ -321,6 +380,27 @@ run_command = "srun vasp_std"
 [int-nano-jinja.program.turbomole2]
 use_tmp = true
 
+[int-nano-jinja.program.turbomole]
+define_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+define < define.inp > define.out 2>&1
+"""
+run_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load turbomole/7.6
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
+
 [int-nano-jinja.program.simstack-crest]
 use_tmp = false
 # Preferred Apptainer-based configuration for the CREST/simstack-crest
@@ -384,6 +464,20 @@ run_command = "$ORCA_HOME/orca orca.inp > orca.out"
 [justus.program.turbomole2]
 use_tmp = true
 
+[justus.program.turbomole]
+define_command = "define < define.inp > define.out 2>&1"
+run_command = """
+set -e
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
+
 [horeka.program.orca_5]
 use_tmp = true
 environment_modules = [""]
@@ -407,6 +501,20 @@ manual_ORCA_HOME=["/home/hk-project-p0023945/is2364/soft/orca/orca_6_1_1_linux_x
 
 [horeka.program.turbomole2]
 use_tmp = true
+
+[horeka.program.turbomole]
+define_command = "define < define.inp > define.out 2>&1"
+run_command = """
+set -e
+if [ -f turbomole_opt_cycles ]; then
+  jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
+else
+  ridft > ridft.out 2>&1
+  if [ -f turbomole_gradients ]; then
+    rdgrad > rdgrad.out 2>&1
+  fi
+fi
+"""
 
 
 

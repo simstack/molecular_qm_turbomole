@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from odmantic import ObjectId
 
-from molecular_qm_turbomole.lib.env import build_ground_state_script
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OptimizationChartTracker,
     cleanup_opt_snapshots,
@@ -69,6 +68,26 @@ def patch_heartbeat(monkeypatch):
     instance = MagicMock()
     cls = MagicMock(return_value=instance)
     monkeypatch.setattr(turbomole2_module, "ProcessHeartbeat", cls)
+
+    def fake_run(
+        program_name, *args, node_runner=None, name=None, command="run_command", **kwargs
+    ):
+        cycles_path = Path("turbomole_opt_cycles")
+        cycles = (
+            cycles_path.read_text(encoding="utf-8").strip()
+            if cycles_path.is_file()
+            else ""
+        )
+        script = f"jobex -ri -c {cycles}" if cycles else "ridft"
+        return node_runner.subprocess(name or "run", script)
+
+    resource_config = MagicMock()
+    resource_config.run.side_effect = fake_run
+    monkeypatch.setattr(
+        turbomole2_module,
+        "context",
+        SimpleNamespace(resource_config=resource_config),
+    )
     return cls, instance
 
 
@@ -168,15 +187,33 @@ def test_inspect_geometry_optimization_running(tmp_path):
     assert "did not end properly" in error
 
 
-def test_ground_state_script_adds_jobex_cycle_limit():
-    script = build_ground_state_script(
-        optimization=True,
-        use_ri=True,
-        gradients=False,
-        max_cycles=10,
+@pytest.mark.asyncio
+async def test_opt_chunk_writes_cycle_limit_for_run_command(
+    tmp_path, monkeypatch, patch_heartbeat
+):
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def fake_subprocess(name, command, cwd=""):
+        seen["cycles"] = Path("turbomole_opt_cycles").read_text(encoding="utf-8").strip()
+        seen["command"] = command
+        _write_energy(tmp_path, 10)
+        _write_gradient(tmp_path, 10)
+        (tmp_path / "GEO_OPT_CONVERGED").write_text("CONVERGED\n", encoding="utf-8")
+        return True
+
+    async def fake_persist(energy_data, grad_data, kwargs, existing=(None, None)):
+        return (MagicMock(), MagicMock())
+
+    monkeypatch.setattr(
+        "molecular_qm_turbomole.lib.opt_artifacts.persist_opt_charts",
+        fake_persist,
     )
-    assert "jobex -ri -c 10" in script
-    assert "aoforce" not in script
+    node_runner = MagicMock()
+    node_runner.subprocess.side_effect = fake_subprocess
+    await _run_optimization_chunks(_opt_qm_input(), node_runner, {"node_runner": node_runner})
+    assert seen["cycles"] == "10"
+    assert "-c 10" in seen["command"]
 
 
 @pytest.mark.asyncio
