@@ -18,7 +18,7 @@ fi
 
 # Load Turbomole
 module purge >/dev/null 2>&1 || true
-module load turbomole/7.6
+module load chem/turbomole/8.0
 
 # Optional: threads
 #export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"

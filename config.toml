@@ -89,13 +89,13 @@ use_tmp = true
 define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -104,6 +104,18 @@ else
     rdgrad > rdgrad.out 2>&1
   fi
 fi
+"""
+escf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+escf > escf.out 2>&1
+"""
+aoforce_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+aoforce > aoforce.out 2>&1
 """
 
 
@@ -181,6 +193,8 @@ else
   fi
 fi
 """
+escf_command = "escf > escf.out 2>&1"
+aoforce_command = "aoforce > aoforce.out 2>&1"
 
 [local.program.simstack-crest]
 use_tmp = false
@@ -234,13 +248,13 @@ use_tmp = true
 define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -249,6 +263,18 @@ else
     rdgrad > rdgrad.out 2>&1
   fi
 fi
+"""
+escf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+escf > escf.out 2>&1
+"""
+aoforce_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+aoforce > aoforce.out 2>&1
 """
 
 [int-nano.program.simstack-crest]
@@ -384,13 +410,13 @@ use_tmp = true
 define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
-module load turbomole/7.6
+module load chem/turbomole/8.0
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -399,6 +425,18 @@ else
     rdgrad > rdgrad.out 2>&1
   fi
 fi
+"""
+escf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+escf > escf.out 2>&1
+"""
+aoforce_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+aoforce > aoforce.out 2>&1
 """
 
 [int-nano-jinja.program.simstack-crest]
@@ -477,6 +515,8 @@ else
   fi
 fi
 """
+escf_command = "escf > escf.out 2>&1"
+aoforce_command = "aoforce > aoforce.out 2>&1"
 
 [horeka.program.orca_5]
 use_tmp = true
@@ -515,6 +555,8 @@ else
   fi
 fi
 """
+escf_command = "escf > escf.out 2>&1"
+aoforce_command = "aoforce > aoforce.out 2>&1"
 
 
 

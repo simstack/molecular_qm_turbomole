@@ -10,11 +10,6 @@ from typing import Optional
 from molecular_qm_models.molecule import MoleculeList
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.control_utils import append_control_groups
-from molecular_qm_turbomole.lib.env import (
-    build_frequency_script,
-    build_hyperpolarizability_script,
-    prepend_tm_env,
-)
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OPT_CHART_INTERVAL,
     OptimizationChartTracker,
@@ -86,7 +81,7 @@ def _process_cpu_seconds() -> float:
 
 
 def _run_monitored_subprocess(
-    node_runner, name, prefix, kwargs, command="run_command", script=None
+    node_runner, name, prefix, kwargs, command="run_command"
 ):
     """Run a TURBOMOLE command with heartbeat progress lines and wall/CPU timing."""
     task_id = ""
@@ -109,15 +104,12 @@ def _run_monitored_subprocess(
     wall_start = time.monotonic()
     cpu_start = _process_cpu_seconds()
     try:
-        if script is not None:
-            ok = node_runner.subprocess(name, script)
-        else:
-            ok = context.resource_config.run(
-                "turbomole",
-                node_runner=node_runner,
-                command=command,
-                name=name,
-            )
+        ok = context.resource_config.run(
+            "turbomole",
+            node_runner=node_runner,
+            command=command,
+            name=name,
+        )
     finally:
         wall_s = time.monotonic() - wall_start
         cpu_s = _process_cpu_seconds() - cpu_start
@@ -410,13 +402,12 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
     if qm_input.optimization:
         tracker = await _run_optimization_chunks(qm_input, node_runner, kwargs)
         if qm_input.frequencies:
-            freq_script = prepend_tm_env(build_frequency_script())
             ok, freq_wall_s, freq_cpu_s = _run_monitored_subprocess(
                 node_runner,
                 "turbomole_aoforce",
                 "Frequency/aoforce calculation",
                 kwargs,
-                script=freq_script,
+                command="aoforce_command",
             )
             attach_optimizer_timings(
                 node_runner,
@@ -452,13 +443,12 @@ async def _run_ground_state(qm_input: TurbomoleQMInput2, node_runner, kwargs: di
             )
         )
     if qm_input.frequencies:
-        freq_script = prepend_tm_env(build_frequency_script())
         ok, freq_wall_s, freq_cpu_s = _run_monitored_subprocess(
             node_runner,
             "turbomole_aoforce",
             "Frequency/aoforce calculation",
             kwargs,
-            script=freq_script,
+            command="aoforce_command",
         )
         attach_optimizer_timings(
             node_runner, None, freq_wall_s=freq_wall_s, freq_cpu_s=freq_cpu_s
@@ -478,9 +468,10 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
     """
     TURBOMOLE node for single-point, geometry optimization, and first hyperpolarizability (beta).
 
-    ``define`` and the ground-state calculation are launched with
-    ``ResourceConfig.run("turbomole")`` from ``[<resource>.program.turbomole]``
-    (``define_command`` and ``run_command``). Optimization chunks write
+    ``define``, the ground-state calculation, ``aoforce``, and ``escf`` are
+    launched with ``ResourceConfig.run("turbomole")`` from
+    ``[<resource>.program.turbomole]`` (``define_command``, ``run_command``,
+    ``aoforce_command``, ``escf_command``). Optimization chunks write
     ``turbomole_opt_cycles``; single-point gradient jobs write
     ``turbomole_gradients`` so ``run_command`` can select jobex vs ridft.
 
@@ -555,13 +546,12 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 "Launching TURBOMOLE escf hyperpolarizability response step "
                 f"(mode={qm_input.hyperpolarizability.value}, lambda_nm={wavelength_nm:.10g})."
             )
-            response_script = prepend_tm_env(build_hyperpolarizability_script())
             ok, _, _ = _run_monitored_subprocess(
                 node_runner,
                 "turbomole_response",
                 "TURBOMOLE hyperpolarizability (escf)",
                 kwargs,
-                script=response_script,
+                command="escf_command",
             )
             if not ok:
                 raise RuntimeError(
