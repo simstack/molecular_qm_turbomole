@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v0.16.0 (2026-09-21)
+
+### Features
+
+- Add turbomole_ricc2 node for HF, MP2, CC2, and ADC(2)
+  ([`882bcd7`](https://github.com/simstack/molecular_qm_turbomole/commit/882bcd71b8022d822e21edb674ce4cd08a716760))
+
+### Refactoring
+
+- Remove `prepend_tm_env` and related scripts, unify with `run_command`
+  ([`010dbba`](https://github.com/simstack/molecular_qm_turbomole/commit/010dbbadc807052eaefe154d565e4bbd1c1e6319))
+
+- Simplify ground-state and frequency script generation with `run_command`
+  ([`d055188`](https://github.com/simstack/molecular_qm_turbomole/commit/d055188ea309deceaab2e3997e7c6347e078b42d))
+
+
 ## v0.15.0 (2026-09-08)
 
 ### Chores
