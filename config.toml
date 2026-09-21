@@ -630,3 +630,6 @@ run_command = "g16 < gaussian.com > gaussian.log 2>&1"
 input_files = ["fcc_state.in"]
 output_files = ["fcc_state.out"]
 run_command = "echo 'Running FCC State'"
+
+[justus-jia]
+same-as = "justus"
