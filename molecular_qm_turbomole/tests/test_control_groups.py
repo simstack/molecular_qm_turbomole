@@ -105,3 +105,16 @@ def test_remove_control_data_groups_drops_soghf():
     assert "$coulex" not in updated
     assert "$dft" in updated
     assert updated.strip().endswith("$end")
+
+
+def test_remove_control_data_groups_drops_magnetic_field():
+    original = (
+        "$title\nwater\n"
+        "$magnetic field\n"
+        "Bx = 0.000000000 By = 0.000000000 Bz = 0.000000000\n"
+        "$end\n"
+    )
+    updated = remove_control_data_groups(original, ("$magnetic field",))
+    assert "$magnetic" not in updated
+    assert "Bx =" not in updated
+    assert updated.strip().endswith("$end")

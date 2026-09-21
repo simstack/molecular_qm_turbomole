@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 ANGSTROM_TO_BOHR = 1.8897259886
 DEFAULT_TURBOMOLE_RI_MEMORY_MB = 1000
+# TURBOMOLE 8 / TmoleX 2026 define writes 2c-GHF and a zero B-field.
+# dscf cannot run with $soghf; ricc2 rejects $magnetic field without $soghf.
+WAVEFUNCTION_STRIP_CONTROL_GROUPS = ("$soghf", "$coulex", "$magnetic field")
 
 TURBOMOLE_BASIS_NAME_MAPPING = {
     "x2c-SV(P)": "x2c-SV(P)all",
@@ -185,7 +188,7 @@ class TurbomoleInputWriter:
         control_path = Path(path)
         stripped = remove_control_data_groups(
             control_path.read_text(encoding="utf-8"),
-            ("$soghf", "$coulex"),
+            WAVEFUNCTION_STRIP_CONTROL_GROUPS,
         )
         control_path.write_text(stripped, encoding="utf-8")
         if method == TurbomoleMethodEnum.HF:

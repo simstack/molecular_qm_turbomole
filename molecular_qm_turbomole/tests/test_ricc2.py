@@ -201,7 +201,10 @@ def test_parse_ricc2_energy_and_two_excited_states(tmp_path):
 def test_wavefunction_control_strips_soghf(tmp_path):
     control = tmp_path / "control"
     control.write_text(
-        "$title\nwater\n$soghf\n$coulex\n$end\n",
+        "$title\nwater\n$soghf\n$coulex\n"
+        "$magnetic field\n"
+        "Bx = 0.000000000 By = 0.000000000 Bz = 0.000000000\n"
+        "$end\n",
         encoding="utf-8",
     )
     groups = TurbomoleInputWriter(
@@ -210,6 +213,8 @@ def test_wavefunction_control_strips_soghf(tmp_path):
     text = control.read_text(encoding="utf-8")
     assert "$soghf" not in text
     assert "$coulex" not in text
+    assert "$magnetic" not in text
+    assert "Bx =" not in text
     assert "$ricc2" in text
     assert "adc(2)" in text
     assert groups[0][0] == "$ricc2"
