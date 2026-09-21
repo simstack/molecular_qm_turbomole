@@ -169,6 +169,34 @@ def replace_control_data_groups(control_text: str, data_groups: Sequence[Sequenc
     return "\n".join(filtered) + "\n"
 
 
+def remove_control_data_groups(control_text: str, group_names: Sequence[str]) -> str:
+    names = {
+        name.strip().split()[0].casefold()
+        for name in group_names
+        if str(name).strip()
+    }
+    if not names:
+        return control_text
+    lines = control_text.splitlines()
+    filtered: list[str] = []
+    idx = 0
+    while idx < len(lines):
+        stripped = lines[idx].strip()
+        normalized = stripped.split()[0].casefold() if stripped.startswith("$") else ""
+        if normalized in names:
+            idx += 1
+            while idx < len(lines) and not lines[idx].strip().startswith("$"):
+                idx += 1
+            continue
+        filtered.append(lines[idx].rstrip())
+        idx += 1
+    while filtered and not filtered[-1].strip():
+        filtered.pop()
+    if not filtered or filtered[-1].strip().casefold() != "$end":
+        raise ValueError("TURBOMOLE control file is missing the final $end marker.")
+    return "\n".join(filtered) + "\n"
+
+
 def patch_control_file(path: str | Path, data_groups: Sequence[Sequence[str]]) -> None:
     control_path = Path(path)
     control_text = control_path.read_text(encoding="utf-8")

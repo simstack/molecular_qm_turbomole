@@ -9,6 +9,7 @@ from simstack.core.node_runner import NodeRunner
 from simstack.models.simple_table import SimpleTable
 
 BOHR_TO_ANGSTROM = 1.0 / 1.8897259886
+_PROGRAM_OUTPUT_TAIL_LINES = 40
 
 _VIBSPECTRUM_ROW_RE = re.compile(
     r"^\s*(\d+)(?:\s+([A-Za-z0-9'\"]+))?\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([\w-]+)\s+([\w-]+)",
@@ -177,11 +178,29 @@ def parse_coord_file(coord_path: Path) -> Optional[Molecule]:
     return molecule
 
 
+def require_turbomole_normal_termination(path: str | Path, program: str) -> None:
+    output_path = Path(path)
+    if not output_path.is_file():
+        raise ValueError(f"Missing {program} output file: {output_path}")
+    text = output_path.read_text(encoding="utf-8", errors="replace")
+    lowered = text.lower()
+    if (
+        f"{program} ended abnormally" in lowered
+        or "ended abnormally" in lowered
+        or "abend of dscf" in lowered
+    ):
+        tail = "\n".join(text.splitlines()[-_PROGRAM_OUTPUT_TAIL_LINES:])
+        raise ValueError(
+            f"{program} ended abnormally. Last lines of {output_path.name}:\n{tail}"
+        )
+
+
 def parse_ricc2_file(path: str | Path) -> tuple[float, Optional[SimpleTable]]:
     """Parse correlated energy and optional ADC(2)/CC2 excitation table from ricc2.out."""
     ricc2_path = Path(path)
     if not ricc2_path.is_file():
         raise ValueError(f"Missing ricc2 output file: {ricc2_path}")
+    require_turbomole_normal_termination(ricc2_path, "ricc2")
     text = ricc2_path.read_text(encoding="utf-8", errors="replace")
     energy: Optional[float] = None
     final_matches = re.findall(

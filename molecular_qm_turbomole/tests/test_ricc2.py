@@ -4,7 +4,10 @@ from pydantic import ValidationError
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
-from molecular_qm_turbomole.lib.output_parser import parse_ricc2_file
+from molecular_qm_turbomole.lib.output_parser import (
+    parse_ricc2_file,
+    require_turbomole_normal_termination,
+)
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
     HyperpolarizabilityModeEnum,
@@ -114,6 +117,9 @@ def test_adc2_define_turns_dft_off_and_assigns_cbas(tmp_path):
     assert "grid" not in text
     assert "cbas" in text
     assert "ex a" not in text
+    assert "soghf" in text
+    scf_block = text.split("scf", 1)[1].split("dft", 1)[0]
+    assert "off" in scf_block
 
 
 def test_hf_define_has_no_cbas(tmp_path):
@@ -126,6 +132,7 @@ def test_hf_define_has_no_cbas(tmp_path):
     assert "off" in text.split("dft", 1)[1]
     assert "cbas" not in text
     assert "func" not in text
+    assert "soghf" in text.split("scf", 1)[1]
 
 
 def test_wavefunction_control_groups(tmp_path):
@@ -189,6 +196,57 @@ def test_parse_ricc2_energy_and_two_excited_states(tmp_path):
     assert table.row[0]["oscillator_strength"] == pytest.approx(0.054321)
     assert table.row[1]["state"] == 2
     assert table.row[1]["energy_ev"] == pytest.approx(9.1234567)
+
+
+def test_wavefunction_control_strips_soghf(tmp_path):
+    control = tmp_path / "control"
+    control.write_text(
+        "$title\nwater\n$soghf\n$coulex\n$end\n",
+        encoding="utf-8",
+    )
+    groups = TurbomoleInputWriter(
+        _qm_input(method=TurbomoleMethodEnum.ADC2, states=2)
+    ).apply_wavefunction_control(str(control))
+    text = control.read_text(encoding="utf-8")
+    assert "$soghf" not in text
+    assert "$coulex" not in text
+    assert "$ricc2" in text
+    assert "adc(2)" in text
+    assert groups[0][0] == "$ricc2"
+
+    control.write_text("$title\nwater\n$soghf\n$end\n", encoding="utf-8")
+    assert (
+        TurbomoleInputWriter(
+            _qm_input(method=TurbomoleMethodEnum.HF)
+        ).apply_wavefunction_control(str(control))
+        == []
+    )
+    assert "$soghf" not in control.read_text(encoding="utf-8")
+
+
+def test_dscf_abnormal_termination_is_reported(tmp_path):
+    dscf_out = tmp_path / "dscf.out"
+    dscf_out.write_text(
+        "Program dscf only supports one-component approaches. Use ridft and $coulex.\n"
+        "  Option $soghf found!\n"
+        " dscf ended abnormally\n"
+        " dscf ended abnormally\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"soghf"):
+        require_turbomole_normal_termination(dscf_out, "dscf")
+
+
+def test_parse_ricc2_reports_dscf_abend_instead_of_missing_energy(tmp_path):
+    ricc2_out = tmp_path / "ricc2.out"
+    ricc2_out.write_text(
+        "data group $actual step is not empty\n"
+        " due to the abend of dscf\n"
+        " ricc2 ended abnormally\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ended abnormally"):
+        parse_ricc2_file(ricc2_out)
 
 
 def test_parse_ricc2_missing_energy_raises(tmp_path):

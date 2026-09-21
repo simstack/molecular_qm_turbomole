@@ -4,6 +4,7 @@ from molecular_qm_turbomole.lib.control_utils import (
     append_control_groups,
     parse_control_group,
     parse_control_groups,
+    remove_control_data_groups,
 )
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
@@ -93,3 +94,14 @@ def test_append_control_groups_writes_before_end(tmp_path):
     assert text.strip().endswith("$end")
     assert text.index("$freeze") < text.index("$end")
     assert text.index("$disp") < text.index("$end")
+
+
+def test_remove_control_data_groups_drops_soghf():
+    original = (
+        "$title\nwater\n$soghf\n$coulex\n  ngrid 1\n$dft\n functional pbe\n$end\n"
+    )
+    updated = remove_control_data_groups(original, ("$soghf", "$coulex"))
+    assert "$soghf" not in updated
+    assert "$coulex" not in updated
+    assert "$dft" in updated
+    assert updated.strip().endswith("$end")

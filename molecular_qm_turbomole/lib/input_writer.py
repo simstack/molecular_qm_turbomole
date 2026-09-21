@@ -1,8 +1,12 @@
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
-from molecular_qm_turbomole.lib.control_utils import patch_control_file
+from molecular_qm_turbomole.lib.control_utils import (
+    patch_control_file,
+    remove_control_data_groups,
+)
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
 from molecular_qm_turbomole.models.turbomole_input import (
     TurbomoleMethodEnum,
@@ -125,9 +129,11 @@ class TurbomoleInputWriter:
                 str(int(self.qm_input.scfiterlimit)),
                 "conv",
                 str(int(self.qm_input.scfconv)),
-                "",
             ]
         )
+        if method != TurbomoleMethodEnum.DFT:
+            lines.extend(["soghf", "off"])
+        lines.append("")
         if method == TurbomoleMethodEnum.DFT:
             functional_name = tm_functional_name(self.qm_input.functional.keyword())
             dispersion = tm_dispersion_name(self.qm_input.dispersion_enum().value)
@@ -176,6 +182,12 @@ class TurbomoleInputWriter:
         method = self.qm_input.method_enum()
         if method == TurbomoleMethodEnum.DFT:
             raise ValueError("Wavefunction control groups are not used for DFT.")
+        control_path = Path(path)
+        stripped = remove_control_data_groups(
+            control_path.read_text(encoding="utf-8"),
+            ("$soghf", "$coulex"),
+        )
+        control_path.write_text(stripped, encoding="utf-8")
         if method == TurbomoleMethodEnum.HF:
             return []
         keyword = {

@@ -8,6 +8,7 @@ from molecular_qm_turbomole.lib.output_parser import (
     TurbomoleOutputParser,
     parse_coord_file,
     parse_ricc2_file,
+    require_turbomole_normal_termination,
     write_final_geometry_xyz,
 )
 from molecular_qm_turbomole.lib.request_validation import validate_molecule_geometry
@@ -120,6 +121,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
                     "Turbomole dscf calculation failed. Check turbomole_dscf.log.",
                 )
             )
+        require_turbomole_normal_termination("dscf.out", "dscf")
 
         excited_states = None
         if method == TurbomoleMethodEnum.HF:
