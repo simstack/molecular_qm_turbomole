@@ -2,8 +2,12 @@ import logging
 import os
 from typing import Optional
 
+from molecular_qm_turbomole.lib.control_utils import patch_control_file
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
-from molecular_qm_turbomole.models.turbomole_input import TurbomoleQMInput2
+from molecular_qm_turbomole.models.turbomole_input import (
+    TurbomoleMethodEnum,
+    TurbomoleQMInput2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,11 +93,8 @@ class TurbomoleInputWriter:
             handle.write("\n".join(lines) + "\n")
 
     def write_define_input(self, path: str = "define.inp") -> None:
-        use_ri = should_use_ri(self.qm_input)
+        method = self.qm_input.method_enum()
         basis_name = tm_basis_name(str(self.qm_input.basis_set.basis_set))
-        functional_name = tm_functional_name(self.qm_input.functional.keyword())
-        dispersion = tm_dispersion_name(self.qm_input.dispersion_enum().value)
-        memory_mb = ri_memory_mb()
 
         lines = [
             f"\n{self.qm_input.name}",
@@ -127,39 +128,70 @@ class TurbomoleInputWriter:
                 "",
             ]
         )
-        lines.extend(
-            [
-                "dft",
-                "on",
-                f"func {functional_name}",
-                f"grid {self.qm_input.gridsize}",
-                "",
-            ]
-        )
-        logger.info(
-            "Configured TURBOMOLE functional=%s grid=%s scfconv=%s scfiterlimit=%s",
-            functional_name,
-            self.qm_input.gridsize,
-            self.qm_input.scfconv,
-            self.qm_input.scfiterlimit,
-        )
-
-        if dispersion:
-            lines.extend(["dsp", dispersion, ""])
-
-        lines.append("ri")
-        if use_ri:
-            lines.extend(["on", f"m {memory_mb}"])
+        if method == TurbomoleMethodEnum.DFT:
+            functional_name = tm_functional_name(self.qm_input.functional.keyword())
+            dispersion = tm_dispersion_name(self.qm_input.dispersion_enum().value)
+            lines.extend(
+                [
+                    "dft",
+                    "on",
+                    f"func {functional_name}",
+                    f"grid {self.qm_input.gridsize}",
+                    "",
+                ]
+            )
+            logger.info(
+                "Configured TURBOMOLE functional=%s grid=%s scfconv=%s scfiterlimit=%s",
+                functional_name,
+                self.qm_input.gridsize,
+                self.qm_input.scfconv,
+                self.qm_input.scfiterlimit,
+            )
+            if dispersion:
+                lines.extend(["dsp", dispersion, ""])
+            lines.append("ri")
+            if should_use_ri(self.qm_input):
+                lines.extend(["on", f"m {ri_memory_mb()}"])
+            else:
+                lines.append("off")
+            lines.append("")
+            if self.qm_input.states > 0:
+                lines.extend(["ex", "a " + str(self.qm_input.states), "*"])
         else:
-            lines.append("off")
-        lines.append("")
-
-        if self.qm_input.states > 0:
-            lines.extend(["ex", "a " + str(self.qm_input.states), "*"])
+            lines.extend(["dft", "off", ""])
+            logger.info(
+                "Configured TURBOMOLE wavefunction method=%s scfconv=%s scfiterlimit=%s",
+                method.value,
+                self.qm_input.scfconv,
+                self.qm_input.scfiterlimit,
+            )
+            if method != TurbomoleMethodEnum.HF:
+                lines.extend(["cc", "cbas", "*", "*"])
 
         lines.append("*")
         with open(path, "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")
+
+    def apply_wavefunction_control(self, path: str = "control") -> list[list[str]]:
+        method = self.qm_input.method_enum()
+        if method == TurbomoleMethodEnum.DFT:
+            raise ValueError("Wavefunction control groups are not used for DFT.")
+        if method == TurbomoleMethodEnum.HF:
+            return []
+        keyword = {
+            TurbomoleMethodEnum.MP2: "mp2",
+            TurbomoleMethodEnum.CC2: "cc2",
+            TurbomoleMethodEnum.ADC2: "adc(2)",
+        }.get(method)
+        if keyword is None:
+            raise ValueError(f"Unsupported TURBOMOLE wavefunction method: {method.value!r}.")
+        groups = [["$ricc2", f"  {keyword}"]]
+        if method == TurbomoleMethodEnum.ADC2:
+            groups.append(
+                ["$excitations", f"  irrep=a nexc={int(self.qm_input.states)}"]
+            )
+        patch_control_file(path, groups)
+        return groups
 
     def write_files(self) -> None:
         self.write_coord()

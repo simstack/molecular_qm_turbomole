@@ -117,6 +117,18 @@ if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
 aoforce > aoforce.out 2>&1
 """
+dscf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+dscf > dscf.out 2>&1
+"""
+ricc2_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+ricc2 > ricc2.out 2>&1
+"""
 
 
 [local.program]
@@ -195,6 +207,8 @@ fi
 """
 escf_command = "escf > escf.out 2>&1"
 aoforce_command = "aoforce > aoforce.out 2>&1"
+dscf_command = "dscf > dscf.out 2>&1"
+ricc2_command = "ricc2 > ricc2.out 2>&1"
 
 [local.program.simstack-crest]
 use_tmp = false
@@ -275,6 +289,18 @@ set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
 aoforce > aoforce.out 2>&1
+"""
+dscf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+dscf > dscf.out 2>&1
+"""
+ricc2_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+ricc2 > ricc2.out 2>&1
 """
 
 [int-nano.program.simstack-crest]
@@ -438,6 +464,18 @@ if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
 aoforce > aoforce.out 2>&1
 """
+dscf_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+dscf > dscf.out 2>&1
+"""
+ricc2_command = """
+set -e
+if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
+module load chem/turbomole/8.0
+ricc2 > ricc2.out 2>&1
+"""
 
 [int-nano-jinja.program.simstack-crest]
 use_tmp = false
@@ -517,6 +555,8 @@ fi
 """
 escf_command = "escf > escf.out 2>&1"
 aoforce_command = "aoforce > aoforce.out 2>&1"
+dscf_command = "dscf > dscf.out 2>&1"
+ricc2_command = "ricc2 > ricc2.out 2>&1"
 
 [horeka.program.orca_5]
 use_tmp = true
@@ -557,6 +597,8 @@ fi
 """
 escf_command = "escf > escf.out 2>&1"
 aoforce_command = "aoforce > aoforce.out 2>&1"
+dscf_command = "dscf > dscf.out 2>&1"
+ricc2_command = "ricc2 > ricc2.out 2>&1"
 
 
 

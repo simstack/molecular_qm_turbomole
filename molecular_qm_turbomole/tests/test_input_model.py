@@ -101,7 +101,8 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert "gw_enabled" not in ui["ui:order"]
     assert "turbomole_cosmo" not in ui["ui:order"]
     assert "control_groups" in ui["ui:order"]
-    assert ui["ui:order"].index("basis_set") < ui["ui:order"].index("functional")
+    assert ui["ui:order"].index("basis_set") < ui["ui:order"].index("method")
+    assert ui["ui:order"].index("method") < ui["ui:order"].index("functional")
     assert ui["ui:order"].index("functional") < ui["ui:order"].index("dispersion_correction")
     assert ui["ui:order"].index("optimization") < ui["ui:order"].index("use_desy")
     assert ui["ui:order"].index("hyperpolarizability") < ui["ui:order"].index(
@@ -125,6 +126,19 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert ui["ui:order"].index("optimization") < ui["ui:order"].index("max_opt_cycles")
     assert ui["ui:order"].index("max_opt_cycles") < ui["ui:order"].index("use_desy")
     assert ui["max_opt_cycles"]["ui:condition"] == {"optimization": True}
+    assert schema["properties"]["method"]["enum"] == [
+        "DFT",
+        "HF",
+        "MP2",
+        "CC2",
+        "ADC(2)",
+    ]
+    assert ui["functional"]["ui:condition"] == {"method": "DFT"}
+    assert ui["gridsize"]["ui:condition"] == {"method": "DFT"}
+
+
+def test_default_method_is_dft():
+    assert _qm_input().method_enum().value == "DFT"
 
 
 def test_boolean_hyperpolarizability_is_rejected():

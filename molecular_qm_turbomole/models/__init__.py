@@ -12,6 +12,7 @@ from molecular_qm_turbomole.models.turbomole_input import (
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
+    TurbomoleMethodEnum,
     TurbomoleQMInput2,
 )
 
@@ -27,5 +28,6 @@ __all__ = [
     "TurbomoleBasisSet2",
     "TurbomoleFunctional",
     "TurbomoleFunctionalEnum",
+    "TurbomoleMethodEnum",
     "TurbomoleQMInput2",
 ]

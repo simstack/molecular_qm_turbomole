@@ -80,6 +80,22 @@ class HyperpolarizabilityModeEnum(str, Enum):
     DYNAMIC = "dynamic"
 
 
+class TurbomoleMethodEnum(str, Enum):
+    DFT = "DFT"
+    HF = "HF"
+    MP2 = "MP2"
+    CC2 = "CC2"
+    ADC2 = "ADC(2)"
+
+
+RICC2_METHODS = (
+    TurbomoleMethodEnum.HF,
+    TurbomoleMethodEnum.MP2,
+    TurbomoleMethodEnum.CC2,
+    TurbomoleMethodEnum.ADC2,
+)
+
+
 def _nested_dispersion_payload(functional: Any) -> Any:
     if isinstance(functional, dict):
         nested = functional.get("dispersion_correction")
@@ -193,6 +209,17 @@ class TurbomoleQMInput2(Model):
 
     molecule: Molecule = Reference()
     name: str = Field("Title", json_schema_extra={"description": "name of the calculation"})
+    method: TurbomoleMethodEnum = Field(
+        TurbomoleMethodEnum.DFT,
+        json_schema_extra={
+            "enum": [e.value for e in TurbomoleMethodEnum],
+            "title": "Method",
+            "description": (
+                "Electronic-structure method. DFT uses turbomole2 (ridft/jobex). "
+                "HF, MP2, CC2, and ADC(2) use turbomole_ricc2 (dscf/ricc2)."
+            ),
+        },
+    )
     charge: int = Field(0, json_schema_extra={"description": "net charge of the molecule"})
     states: int = Field(
         0, json_schema_extra={"description": "number of states to calculate, zero for ground state only"}
@@ -342,11 +369,30 @@ class TurbomoleQMInput2(Model):
             return value
         return DispersionCorrectionEnum(value)
 
+    @field_validator("method", mode="before")
+    @classmethod
+    def validate_method(cls, value: Any) -> TurbomoleMethodEnum:
+        if isinstance(value, TurbomoleMethodEnum):
+            return value
+        if value is None or (isinstance(value, str) and not value.strip()):
+            raise ValueError("TURBOMOLE method must not be empty.")
+        text = str(value).strip()
+        for item in TurbomoleMethodEnum:
+            if item.value == text or item.name == text:
+                return item
+        raise ValueError(f"Unsupported TURBOMOLE method: {value!r}.")
+
     @field_validator("control_groups")
     @classmethod
     def validate_control_groups(cls, value: List[str]) -> List[str]:
         parse_control_groups(value)
         return value
+
+    def method_enum(self) -> TurbomoleMethodEnum:
+        value = self.method
+        if isinstance(value, TurbomoleMethodEnum):
+            return value
+        return TurbomoleMethodEnum(value)
 
     @classmethod
     def json_schema(cls, recursive=True):
@@ -354,6 +400,16 @@ class TurbomoleQMInput2(Model):
         schema["title"] = cls.__name__
         properties = schema.setdefault("properties", {})
         properties["functional"] = TurbomoleFunctional.json_schema()
+        properties["method"] = {
+            "type": "string",
+            "enum": [e.value for e in TurbomoleMethodEnum],
+            "default": TurbomoleMethodEnum.DFT.value,
+            "title": "Method",
+            "description": (
+                "Electronic-structure method. DFT uses turbomole2 (ridft/jobex). "
+                "HF, MP2, CC2, and ADC(2) use turbomole_ricc2 (dscf/ricc2)."
+            ),
+        }
         properties["hyperpolarizability"] = {
             "type": "string",
             "enum": [e.value for e in HyperpolarizabilityModeEnum],
@@ -390,6 +446,7 @@ class TurbomoleQMInput2(Model):
             "scfconv",
             "scfiterlimit",
             "basis_set",
+            "method",
             "functional",
             "dispersion_correction",
             "solvent_mode",
@@ -409,6 +466,13 @@ class TurbomoleQMInput2(Model):
             "control_groups",
         ]
         ui_schema.setdefault("ui:options", {})["ui:foldable"] = True
+        ui_schema.setdefault("method", {})["ui:widget"] = "select"
+        ui_schema.setdefault("functional", {})["ui:condition"] = {
+            "method": TurbomoleMethodEnum.DFT.value
+        }
+        ui_schema.setdefault("gridsize", {})["ui:condition"] = {
+            "method": TurbomoleMethodEnum.DFT.value
+        }
         ui_schema.setdefault("hyperpolarizability", {})["ui:widget"] = "select"
         ui_schema.setdefault("solvent", {})["ui:condition"] = {
             "solvent_mode": SolventModeEnum.IMPLICIT.value
@@ -426,3 +490,47 @@ class TurbomoleQMInput2(Model):
             "optimization": True
         }
         return ui_schema
+
+
+def validate_turbomole2_method(qm_input: TurbomoleQMInput2) -> None:
+    method = qm_input.method_enum()
+    if method != TurbomoleMethodEnum.DFT:
+        raise ValueError(
+            f"turbomole2 only supports DFT, got {method.value!r}. "
+            "Use turbomole_ricc2 for HF, MP2, CC2, and ADC(2)."
+        )
+
+
+def validate_turbomole_ricc2_request(qm_input: TurbomoleQMInput2) -> None:
+    method = qm_input.method_enum()
+    if method not in RICC2_METHODS:
+        raise ValueError(
+            f"turbomole_ricc2 does not support method {method.value!r}. "
+            "Use turbomole2 for DFT."
+        )
+    if qm_input.optimization:
+        raise ValueError(
+            "Geometry optimization is not supported for wavefunction methods in turbomole_ricc2."
+        )
+    if qm_input.gradients:
+        raise ValueError(
+            "Gradients are not supported for wavefunction methods in turbomole_ricc2."
+        )
+    if qm_input.frequencies:
+        raise ValueError(
+            "Frequency calculations are not supported for wavefunction methods in turbomole_ricc2."
+        )
+    if qm_input.hyperpolarizability != HyperpolarizabilityModeEnum.NONE:
+        raise ValueError(
+            "Hyperpolarizability is not supported for wavefunction methods in turbomole_ricc2."
+        )
+    if qm_input.open_shell_calculation:
+        raise ValueError("Open-shell calculations are not supported in turbomole_ricc2.")
+    if int(qm_input.multiplicity) != 1:
+        raise ValueError("turbomole_ricc2 requires multiplicity=1.")
+    states = int(qm_input.states)
+    if method == TurbomoleMethodEnum.ADC2:
+        if states <= 0:
+            raise ValueError("ADC(2) requires states > 0.")
+    elif states != 0:
+        raise ValueError(f"{method.value} requires states=0 (ground state only).")

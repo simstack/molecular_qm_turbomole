@@ -177,6 +177,77 @@ def parse_coord_file(coord_path: Path) -> Optional[Molecule]:
     return molecule
 
 
+def parse_ricc2_file(path: str | Path) -> tuple[float, Optional[SimpleTable]]:
+    """Parse correlated energy and optional ADC(2)/CC2 excitation table from ricc2.out."""
+    ricc2_path = Path(path)
+    if not ricc2_path.is_file():
+        raise ValueError(f"Missing ricc2 output file: {ricc2_path}")
+    text = ricc2_path.read_text(encoding="utf-8", errors="replace")
+    energy: Optional[float] = None
+    final_matches = re.findall(
+        r"Final\s+(?:MP2|CC2)\s+energy\s*[:=]\s*([-+0-9.EeDd]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    method_matches = re.findall(
+        r"^\s*(?:MP2|CC2)\s+energy\s*[:=]\s*([-+0-9.EeDd]+)\s*$",
+        text,
+        flags=re.IGNORECASE | re.MULTILINE,
+    )
+    if final_matches:
+        energy = _parse_fortran_float(final_matches[-1])
+    elif method_matches:
+        energy = _parse_fortran_float(method_matches[-1])
+    if energy is None:
+        raise ValueError(f"Failed to parse correlated energy from {ricc2_path}.")
+
+    table: Optional[SimpleTable] = None
+    capturing = False
+    rows: list[tuple[int, str, float, float]] = []
+    excitation_row = re.compile(
+        r"^\s*(\d+)\s+([A-Za-z0-9\"']+)\s+"
+        r"([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s*$"
+    )
+    for line in text.splitlines():
+        lowered = line.lower()
+        if "excitation energy" in lowered and "final" not in lowered:
+            capturing = True
+            continue
+        if not capturing:
+            continue
+        match = excitation_row.match(line)
+        if match:
+            rows.append(
+                (
+                    int(match.group(1)),
+                    match.group(2),
+                    float(match.group(3)),
+                    float(match.group(5)),
+                )
+            )
+            continue
+        if rows and line.strip().startswith("$"):
+            break
+        if rows and line.strip().startswith("="):
+            break
+    if rows:
+        table = SimpleTable(name="Excited States")
+        table.add_column("state", "int")
+        table.add_column("symmetry", "str")
+        table.add_column("energy_ev", "float")
+        table.add_column("oscillator_strength", "float")
+        for state, symmetry, energy_ev, oscillator in rows:
+            table.add_row(
+                {
+                    "state": state,
+                    "symmetry": symmetry,
+                    "energy_ev": energy_ev,
+                    "oscillator_strength": oscillator,
+                }
+            )
+    return energy, table
+
+
 def parse_vibspectrum_file(path: Path) -> Optional[SimpleTable]:
     content = path.read_text(encoding="utf-8", errors="replace")
     if "$vibrational spectrum" not in content.lower():

@@ -1,7 +1,5 @@
 import logging
-import math
 import os
-import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +16,7 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
 from molecular_qm_turbomole.lib.opt_watchdog import WATCHDOG_SIDECAR
 from molecular_qm_turbomole.lib.optimization_timing import attach_optimizer_timings
 from molecular_qm_turbomole.lib.process_heartbeat import ProcessHeartbeat
+from molecular_qm_turbomole.lib.request_validation import validate_molecule_geometry
 from molecular_qm_turbomole.lib.hyperpol import (
     apply_hyperpolarizability_control,
     hyperpolarizability_requested,
@@ -33,7 +32,10 @@ from molecular_qm_turbomole.lib.output_parser import (
     TurbomoleOutputParser,
     write_final_geometry_xyz,
 )
-from molecular_qm_turbomole.models.turbomole_input import TurbomoleQMInput2
+from molecular_qm_turbomole.models.turbomole_input import (
+    TurbomoleQMInput2,
+    validate_turbomole2_method,
+)
 from simstack.core.context import context
 from simstack.core.definitions import TaskStatus
 from simstack.core.node import node
@@ -170,6 +172,7 @@ TURBOMOLE_INFO_STATIC_FILES = (
     "aoforce.out",
     "vibspectrum",
     "escf.out",
+    "ricc2.out",
     "hyperpols",
     HEARTBEAT_LOG,
     WATCHDOG_SIDECAR,
@@ -184,24 +187,8 @@ TURBOMOLE_INFO_PATTERNS = (
 
 
 def _validate_request(qm_input: TurbomoleQMInput2) -> None:
-    atoms = getattr(qm_input.molecule, "atoms", None)
-    if not atoms:
-        raise ValueError(
-            "TURBOMOLE requires a non-empty molecule with 3D coordinates."
-        )
-    for index, atom in enumerate(atoms, start=1):
-        element = str(getattr(atom, "element", "") or "").strip()
-        if not re.fullmatch(r"[A-Za-z]{1,3}", element):
-            raise ValueError(f"Atom {index} has an invalid element symbol {element!r}.")
-        coordinates = (atom.x, atom.y, atom.z)
-        try:
-            finite = all(math.isfinite(float(value)) for value in coordinates)
-        except (TypeError, ValueError):
-            finite = False
-        if not finite:
-            raise ValueError(
-                f"Atom {index} ({element}) has non-finite coordinates: {coordinates!r}."
-            )
+    validate_turbomole2_method(qm_input)
+    validate_molecule_geometry(qm_input)
     validate_hyperpolarizability_request(qm_input)
 
 

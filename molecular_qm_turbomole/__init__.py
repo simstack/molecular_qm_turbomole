@@ -10,9 +10,11 @@ from molecular_qm_turbomole.models.turbomole_input import (
     HyperpolarizabilityModeEnum,
     SolventModeEnum,
     TurbomoleBasisSet2,
+    TurbomoleMethodEnum,
     TurbomoleQMInput2,
 )
 from molecular_qm_turbomole.nodes.turbomole2 import turbomole2
+from molecular_qm_turbomole.nodes.turbomole_ricc2 import turbomole_ricc2
 
 try:
     from molecular_qm_turbomole._version import __version__
@@ -30,6 +32,8 @@ __all__ = [
     "HyperpolarizabilityModeEnum",
     "TurbomoleDispersionCorrection",
     "TurbomoleBasisSet2",
+    "TurbomoleMethodEnum",
     "TurbomoleQMInput2",
     "turbomole2",
+    "turbomole_ricc2",
 ]
