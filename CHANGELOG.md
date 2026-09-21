@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.17.0 (2026-09-21)
+
+### Features
+
+- Add `remove_control_data_groups` utility and enforce normal termination checks
+  ([`7d7efbf`](https://github.com/simstack/molecular_qm_turbomole/commit/7d7efbf2053b748128a66c151c42a7e80aea64dd))
+
+
 ## v0.16.0 (2026-09-21)
 
 ### Features
