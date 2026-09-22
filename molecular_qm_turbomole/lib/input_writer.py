@@ -203,7 +203,11 @@ class TurbomoleInputWriter:
         groups = [["$ricc2", f"  {keyword}"]]
         if method == TurbomoleMethodEnum.ADC2:
             groups.append(
-                ["$excitations", f"  irrep=a nexc={int(self.qm_input.states)}"]
+                [
+                    "$excitations",
+                    f"  irrep=a nexc={int(self.qm_input.states)}",
+                    "  spectrum states=all operators=diplen",
+                ]
             )
         patch_control_file(path, groups)
         return groups

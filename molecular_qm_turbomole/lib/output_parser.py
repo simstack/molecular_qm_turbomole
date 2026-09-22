@@ -17,6 +17,24 @@ _VIBSPECTRUM_ROW_RE = re.compile(
 )
 _CYCLE_HEADER_RE = re.compile(r"cycle\s*=\s*(\d+)", re.IGNORECASE)
 _GRAD_NORM_RE = re.compile(r"\|dE/dxyz\|\s*=\s*([-+0-9.EeDd]+)", re.IGNORECASE)
+_RICC2_TM8_STATE_ROW = re.compile(
+    r"^\s*\|\s*([A-Za-z0-9\"']+)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*"
+    r"([-+]?\d+\.\d+)\s*\|\s*([-+]?\d+\.\d+)\s*\|\s*([-+]?\d+\.?\d*)\s*\|\s*"
+    r"([-+]?\d+\.\d+)\s*\|\s*([-+]?\d+\.\d+)\s*\|"
+)
+_RICC2_LEGACY_STATE_ROW = re.compile(
+    r"^\s*(\d+)\s+([A-Za-z0-9\"']+)\s+"
+    r"([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s*$"
+)
+_RICC2_STATE_HEADER = re.compile(
+    r"symmetry:\s*([A-Za-z0-9\"']+)\s+state:\s*(\d+)",
+    re.IGNORECASE,
+)
+_RICC2_ORB_ROW = re.compile(
+    r"^\s*\|\s*(\d+)\s+([A-Za-z0-9\"']+)\s+(\d+)\s*\|"
+    r"\s*(\d+)\s+([A-Za-z0-9\"']+)\s+(\d+)\s*\|"
+    r"\s*([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s*\|"
+)
 
 
 class TurbomoleOutputParser:
@@ -195,8 +213,10 @@ def require_turbomole_normal_termination(path: str | Path, program: str) -> None
         )
 
 
-def parse_ricc2_file(path: str | Path) -> tuple[float, Optional[SimpleTable]]:
-    """Parse correlated energy and optional ADC(2)/CC2 excitation table from ricc2.out."""
+def parse_ricc2_file(
+    path: str | Path,
+) -> tuple[float, Optional[SimpleTable], Optional[SimpleTable]]:
+    """Parse correlated energy, excited states, and occ→vir amplitudes from ricc2.out."""
     ricc2_path = Path(path)
     if not ricc2_path.is_file():
         raise ValueError(f"Missing ricc2 output file: {ricc2_path}")
@@ -220,51 +240,103 @@ def parse_ricc2_file(path: str | Path) -> tuple[float, Optional[SimpleTable]]:
     if energy is None:
         raise ValueError(f"Failed to parse correlated energy from {ricc2_path}.")
 
-    table: Optional[SimpleTable] = None
-    capturing = False
-    rows: list[tuple[int, str, float, float]] = []
-    excitation_row = re.compile(
-        r"^\s*(\d+)\s+([A-Za-z0-9\"']+)\s+"
-        r"([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s+([-+]?\d+\.\d+)\s*$"
-    )
+    tm8_states: list[dict] = []
+    legacy_states: list[dict] = []
+    transitions: list[dict] = []
+    current_state: Optional[int] = None
+    current_symmetry: Optional[str] = None
+    capturing_legacy = False
     for line in text.splitlines():
-        lowered = line.lower()
-        if "excitation energy" in lowered and "final" not in lowered:
-            capturing = True
-            continue
-        if not capturing:
-            continue
-        match = excitation_row.match(line)
-        if match:
-            rows.append(
-                (
-                    int(match.group(1)),
-                    match.group(2),
-                    float(match.group(3)),
-                    float(match.group(5)),
-                )
-            )
-            continue
-        if rows and line.strip().startswith("$"):
-            break
-        if rows and line.strip().startswith("="):
-            break
-    if rows:
-        table = SimpleTable(name="Excited States")
-        table.add_column("state", "int")
-        table.add_column("symmetry", "str")
-        table.add_column("energy_ev", "float")
-        table.add_column("oscillator_strength", "float")
-        for state, symmetry, energy_ev, oscillator in rows:
-            table.add_row(
+        tm8 = _RICC2_TM8_STATE_ROW.match(line)
+        if tm8:
+            tm8_states.append(
                 {
-                    "state": state,
-                    "symmetry": symmetry,
-                    "energy_ev": energy_ev,
-                    "oscillator_strength": oscillator,
+                    "state": int(tm8.group(3)),
+                    "symmetry": tm8.group(1),
+                    "multiplicity": int(tm8.group(2)),
+                    "energy_hartree": float(tm8.group(4)),
+                    "energy_ev": float(tm8.group(5)),
+                    "energy_cm_1": float(tm8.group(6)),
+                    "percent_t1": float(tm8.group(7)),
+                    "percent_t2": float(tm8.group(8)),
                 }
             )
-    return energy, table
+            continue
+        header = _RICC2_STATE_HEADER.search(line)
+        if header:
+            current_symmetry = header.group(1)
+            current_state = int(header.group(2))
+            continue
+        orb = _RICC2_ORB_ROW.match(line)
+        if orb and current_state is not None:
+            transitions.append(
+                {
+                    "state": current_state,
+                    "symmetry": current_symmetry or "-",
+                    "occ_orbital": f"{orb.group(1)} {orb.group(2)}",
+                    "occ_index": int(orb.group(3)),
+                    "vir_orbital": f"{orb.group(4)} {orb.group(5)}",
+                    "vir_index": int(orb.group(6)),
+                    "coefficient": float(orb.group(7)),
+                    "percent": float(orb.group(8)),
+                }
+            )
+            continue
+        lowered = line.lower()
+        if "excitation energy" in lowered and "final" not in lowered and not tm8_states:
+            capturing_legacy = True
+            continue
+        if capturing_legacy:
+            legacy = _RICC2_LEGACY_STATE_ROW.match(line)
+            if legacy:
+                legacy_states.append(
+                    {
+                        "state": int(legacy.group(1)),
+                        "symmetry": legacy.group(2),
+                        "energy_ev": float(legacy.group(3)),
+                        "oscillator_strength": float(legacy.group(5)),
+                    }
+                )
+                continue
+            if legacy_states and (
+                line.strip().startswith("$") or line.strip().startswith("=")
+            ):
+                capturing_legacy = False
+
+    state_rows = tm8_states or legacy_states
+    states_table: Optional[SimpleTable] = None
+    if state_rows:
+        states_table = SimpleTable(name="Excited States")
+        for column, column_type in (
+            ("state", "int"),
+            ("symmetry", "str"),
+            ("multiplicity", "int"),
+            ("energy_hartree", "float"),
+            ("energy_ev", "float"),
+            ("energy_cm_1", "float"),
+            ("percent_t1", "float"),
+            ("percent_t2", "float"),
+            ("oscillator_strength", "float"),
+        ):
+            if any(column in row for row in state_rows):
+                states_table.add_column(column, column_type)
+        for row in state_rows:
+            states_table.add_row(row)
+
+    transitions_table: Optional[SimpleTable] = None
+    if transitions:
+        transitions_table = SimpleTable(name="Excited State Transitions")
+        transitions_table.add_column("state", "int")
+        transitions_table.add_column("symmetry", "str")
+        transitions_table.add_column("occ_orbital", "str")
+        transitions_table.add_column("occ_index", "int")
+        transitions_table.add_column("vir_orbital", "str")
+        transitions_table.add_column("vir_index", "int")
+        transitions_table.add_column("coefficient", "float")
+        transitions_table.add_column("percent", "float")
+        for row in transitions:
+            transitions_table.add_row(row)
+    return energy, states_table, transitions_table
 
 
 def parse_vibspectrum_file(path: Path) -> Optional[SimpleTable]:

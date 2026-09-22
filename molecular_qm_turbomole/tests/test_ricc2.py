@@ -160,6 +160,7 @@ def test_wavefunction_control_groups(tmp_path):
     assert "adc(2)" in adc_text
     assert "$excitations" in adc_text
     assert "nexc=4" in adc_text
+    assert "spectrum states=all operators=diplen" in adc_text
     assert adc_groups[1][0] == "$excitations"
 
     assert (
@@ -187,15 +188,127 @@ def test_parse_ricc2_energy_and_two_excited_states(tmp_path):
 """,
         encoding="utf-8",
     )
-    energy, table = parse_ricc2_file(ricc2_out)
+    energy, table, transitions = parse_ricc2_file(ricc2_out)
     assert energy == pytest.approx(-76.2280123456)
     assert table is not None
+    assert transitions is None
     assert len(table.row) == 2
     assert table.row[0]["state"] == 1
     assert table.row[0]["energy_ev"] == pytest.approx(7.8451234)
     assert table.row[0]["oscillator_strength"] == pytest.approx(0.054321)
     assert table.row[1]["state"] == 2
     assert table.row[1]["energy_ev"] == pytest.approx(9.1234567)
+
+
+def test_parse_ricc2_tm8_excitation_table_and_orbital_occupations(tmp_path):
+    ricc2_out = tmp_path / "ricc2.out"
+    ricc2_out.write_text(
+        """
+     *   Final MP2 energy                        :   -383.4404169927      *
+
+   +================================================================================+
+   | sym | multi | state |          ADC(2) excitation energies    |  %t1   |  %t2   |
+   |     |       |       +----------------------------------------+--------+--------+
+   |     |       |       |   Hartree    |    eV      |    cm-1    |    %   |    %   |
+   +================================================================================+
+   | a   |   1   |   1   |    0.1376098 |    3.74455 |  30201.869 |  91.74 |   8.26 |
+   | a   |   1   |   2   |    0.1839143 |    5.00456 |  40364.521 |  90.13 |   9.87 |
+   | a   |   1   |   3   |    0.2172040 |    5.91042 |  47670.772 |  91.90 |   8.10 |
+   | a   |   1   |   4   |    0.2284356 |    6.21605 |  50135.818 |  85.30 |  14.70 |
+   +================================================================================+
+
+
+       Energy:     0.1376098 H      3.74455 eV    30201.869 cm-1
+
+     +=======================================================================+
+     | type: RE0                    symmetry: a               state:    1    |
+     +-----------------------+-----------------------+-----------------------+
+     | occ. orb.  index spin | vir. orb.  index spin |  coeff/|amp|     %    |
+     +=======================+=======================+=======================+
+     |   30 a       30       |   33 a       33       |   0.89110      79.4   |
+     |   30 a       30       |   37 a       37       |  -0.34333      11.8   |
+     |   30 a       30       |   41 a       41       |   0.14924       2.2   |
+     |   27 a       27       |   33 a       33       |   0.12298       1.5   |
+     |   19 a       19       |   33 a       33       |   0.08070       0.7   |
+     +=======================+=======================+=======================+
+     norm of printed elements:  0.95585
+
+
+       Energy:     0.1839143 H      5.00456 eV    40364.521 cm-1
+
+     +=======================================================================+
+     | type: RE0                    symmetry: a               state:    2    |
+     +-----------------------+-----------------------+-----------------------+
+     | occ. orb.  index spin | vir. orb.  index spin |  coeff/|amp|     %    |
+     +=======================+=======================+=======================+
+     |   32 a       32       |   33 a       33       |  -0.67684      45.8   |
+     |   31 a       31       |   34 a       34       |   0.45623      20.8   |
+     |   31 a       31       |   33 a       33       |   0.44798      20.1   |
+     |   32 a       32       |   34 a       34       |   0.32570      10.6   |
+     +=======================+=======================+=======================+
+     norm of printed elements:  0.97303
+
+
+       Energy:     0.2172040 H      5.91042 eV    47670.772 cm-1
+
+     +=======================================================================+
+     | type: RE0                    symmetry: a               state:    3    |
+     +-----------------------+-----------------------+-----------------------+
+     | occ. orb.  index spin | vir. orb.  index spin |  coeff/|amp|     %    |
+     +=======================+=======================+=======================+
+     |   31 a       31       |   33 a       33       |   0.74428      55.4   |
+     |   32 a       32       |   33 a       33       |   0.58230      33.9   |
+     |   32 a       32       |   34 a       34       |   0.25469       6.5   |
+     +=======================+=======================+=======================+
+     norm of printed elements:  0.95789
+
+
+       Energy:     0.2284356 H      6.21605 eV    50135.818 cm-1
+
+     +=======================================================================+
+     | type: RE0                    symmetry: a               state:    4    |
+     +-----------------------+-----------------------+-----------------------+
+     | occ. orb.  index spin | vir. orb.  index spin |  coeff/|amp|     %    |
+     +=======================+=======================+=======================+
+     |   30 a       30       |   34 a       34       |   0.98745      97.5   |
+     +=======================+=======================+=======================+
+     norm of printed elements:  0.97505
+
+   ****  ricc2 : all done  ****
+""",
+        encoding="utf-8",
+    )
+    energy, table, transitions = parse_ricc2_file(ricc2_out)
+    assert energy == pytest.approx(-383.4404169927)
+    assert table is not None
+    assert len(table.row) == 4
+    assert table.row[0]["state"] == 1
+    assert table.row[0]["symmetry"] == "a"
+    assert table.row[0]["multiplicity"] == 1
+    assert table.row[0]["energy_hartree"] == pytest.approx(0.1376098)
+    assert table.row[0]["energy_ev"] == pytest.approx(3.74455)
+    assert table.row[0]["energy_cm_1"] == pytest.approx(30201.869)
+    assert table.row[0]["percent_t1"] == pytest.approx(91.74)
+    assert table.row[3]["energy_ev"] == pytest.approx(6.21605)
+    assert transitions is not None
+    assert len(transitions.row) == 13
+    first = transitions.row[0]
+    assert first["state"] == 1
+    assert first["symmetry"] == "a"
+    assert first["occ_orbital"] == "30 a"
+    assert first["occ_index"] == 30
+    assert first["vir_orbital"] == "33 a"
+    assert first["vir_index"] == 33
+    assert first["coefficient"] == pytest.approx(0.89110)
+    assert first["percent"] == pytest.approx(79.4)
+    assert transitions.row[1]["coefficient"] == pytest.approx(-0.34333)
+    assert transitions.row[5]["state"] == 2
+    assert transitions.row[5]["occ_orbital"] == "32 a"
+    assert transitions.row[5]["percent"] == pytest.approx(45.8)
+    assert transitions.row[-1]["state"] == 4
+    assert transitions.row[-1]["occ_orbital"] == "30 a"
+    assert transitions.row[-1]["vir_orbital"] == "34 a"
+    assert transitions.row[-1]["percent"] == pytest.approx(97.5)
 
 
 def test_wavefunction_control_strips_soghf(tmp_path):

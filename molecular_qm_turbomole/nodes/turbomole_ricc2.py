@@ -49,7 +49,8 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             must be HF, MP2, CC2, or ADC(2).
 
     SimstackResult:
-        result (QMResult): Final energy, structure, and ADC(2) excited states.
+        result (QMResult): Final energy, structure, ADC(2) excited states, and
+            occ→vir transition amplitudes.
     """
     node_runner = kwargs["node_runner"]
     method = qm_input.method_enum()
@@ -124,6 +125,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         require_turbomole_normal_termination("dscf.out", "dscf")
 
         excited_states = None
+        excited_state_transitions = None
         if method == TurbomoleMethodEnum.HF:
             tout = TurbomoleOutputParser(directory=".", node_runner=node_runner)
             tout.parse()
@@ -146,7 +148,9 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
                         "Turbomole ricc2 calculation failed. Check turbomole_ricc2.log and ricc2.out.",
                     )
                 )
-            final_energy, excited_states = parse_ricc2_file("ricc2.out")
+            final_energy, excited_states, excited_state_transitions = parse_ricc2_file(
+                "ricc2.out"
+            )
             if method == TurbomoleMethodEnum.ADC2 and (
                 excited_states is None or not excited_states.row
             ):
@@ -181,6 +185,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             final_structure=final_structure if final_structure else qm_input.molecule,
             structures=MoleculeList(),
             excited_states=excited_states,
+            excited_state_transitions=excited_state_transitions,
             task_status=TaskStatus.COMPLETED,
         )
         node_runner.result = qm_result
