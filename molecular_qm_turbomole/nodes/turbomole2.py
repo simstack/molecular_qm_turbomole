@@ -486,7 +486,9 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         f"max_opt_cycles={qm_input.max_opt_cycles}, "
         f"frequencies={qm_input.frequencies}, "
         f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
-        f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}"
+        f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}, "
+        f"solvent_mode={qm_input.solvent_mode.value}, "
+        f"solvent={qm_input.solvent}"
     )
 
     enter_scratch = getattr(node_runner, "enter_scratch", None)
@@ -498,8 +500,9 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         except Exception as exc:
             _fail(node_runner, f"Invalid TURBOMOLE input settings: {exc}")
 
+        writer = TurbomoleInputWriter(qm_input)
         try:
-            TurbomoleInputWriter(qm_input).write_files()
+            writer.write_files()
             node_runner.info("Input files generated")
         except Exception as exc:
             _fail(node_runner, f"Error creating Turbomole input files: {exc}")
@@ -523,6 +526,10 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 "Appended control_groups: "
                 + ", ".join(group[0].split()[0] for group in appended)
             )
+
+        cosmo_group = writer.apply_cosmo_control("control")
+        if cosmo_group:
+            node_runner.info("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
 
         tracker = await _run_ground_state(qm_input, node_runner, kwargs)
 

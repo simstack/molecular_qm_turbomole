@@ -6,6 +6,7 @@ from pydantic import field_validator, model_validator
 
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Molecule
+from molecular_qm_turbomole.lib.cosmo import cosmo_control_group, supported_solvent_names
 from molecular_qm_turbomole.lib.control_utils import parse_control_groups
 from molecular_qm_turbomole.models.turbomole_functional import (
     TurbomoleFunctional,
@@ -388,6 +389,11 @@ class TurbomoleQMInput2(Model):
         parse_control_groups(value)
         return value
 
+    @model_validator(mode="after")
+    def validate_solvent_configuration(self):
+        cosmo_control_group(self)
+        return self
+
     def method_enum(self) -> TurbomoleMethodEnum:
         value = self.method
         if isinstance(value, TurbomoleMethodEnum):
@@ -408,6 +414,16 @@ class TurbomoleQMInput2(Model):
             "description": (
                 "Electronic-structure method. DFT uses turbomole2 (ridft/jobex). "
                 "HF, MP2, CC2, and ADC(2) use turbomole_ricc2 (dscf/ricc2)."
+            ),
+        }
+        properties["solvent"] = {
+            "type": "string",
+            "enum": ["None", *supported_solvent_names()],
+            "default": "None",
+            "title": "Solvent",
+            "description": (
+                "Named solvent for implicit COSMO. "
+                "The control file then contains $cosmo with that solvent's epsilon and rsolv."
             ),
         }
         properties["hyperpolarizability"] = {
@@ -474,6 +490,7 @@ class TurbomoleQMInput2(Model):
             "method": TurbomoleMethodEnum.DFT.value
         }
         ui_schema.setdefault("hyperpolarizability", {})["ui:widget"] = "select"
+        ui_schema.setdefault("solvent", {})["ui:widget"] = "select"
         ui_schema.setdefault("solvent", {})["ui:condition"] = {
             "solvent_mode": SolventModeEnum.IMPLICIT.value
         }

@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from molecular_qm_turbomole.lib.cosmo import cosmo_control_group
 from molecular_qm_turbomole.lib.control_utils import (
     patch_control_file,
     remove_control_data_groups,
@@ -211,6 +212,14 @@ class TurbomoleInputWriter:
             )
         patch_control_file(path, groups)
         return groups
+
+    def apply_cosmo_control(self, path: str = "control") -> list[str] | None:
+        group = cosmo_control_group(self.qm_input)
+        if not group:
+            return None
+        patch_control_file(path, [group])
+        logger.info("Configured TURBOMOLE COSMO: %s", " | ".join(group))
+        return group
 
     def write_files(self) -> None:
         self.write_coord()

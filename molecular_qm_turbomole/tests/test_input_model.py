@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
+from molecular_qm_turbomole.lib.cosmo import cosmo_control_group
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
@@ -108,6 +109,8 @@ def test_turbomole_qm_input2_schema_has_no_gw_fields():
     assert ui["ui:order"].index("hyperpolarizability") < ui["ui:order"].index(
         "hyperpol_frequency_nm"
     )
+    assert "chloroform" in schema["properties"]["solvent"]["enum"]
+    assert ui["solvent"]["ui:widget"] == "select"
     assert ui["solvent"]["ui:condition"] == {
         "solvent_mode": SolventModeEnum.IMPLICIT.value
     }
@@ -231,6 +234,63 @@ def test_scfiterlimit_and_max_opt_cycles_reject_non_positive_values():
         _qm_input(scfiterlimit=0)
     with pytest.raises(ValidationError):
         _qm_input(max_opt_cycles=0)
+
+
+def test_implicit_chloroform_writes_cosmo_epsilon_and_rsolv(tmp_path):
+    qm_input = _qm_input(solvent_mode=SolventModeEnum.IMPLICIT, solvent="chloroform")
+    control = tmp_path / "control"
+    control.write_text("$title\nwater\n$end\n", encoding="utf-8")
+    group = TurbomoleInputWriter(qm_input).apply_cosmo_control(str(control))
+    text = control.read_text(encoding="utf-8")
+    assert group == [
+        "$cosmo",
+        "epsilon=    4.800",
+        "rsolv= 1.30",
+    ]
+    assert "epsilon=    4.800" in text
+    assert "rsolv= 1.30" in text
+    assert text.rstrip().endswith("$end")
+    assert text.count("$cosmo") == 1
+
+
+def test_implicit_solvent_accepts_chloroform_alias():
+    qm_input = _qm_input(solvent_mode=SolventModeEnum.IMPLICIT, solvent="CHCl3")
+    assert cosmo_control_group(qm_input) == [
+        "$cosmo",
+        "epsilon=    4.800",
+        "rsolv= 1.30",
+    ]
+
+
+def test_gas_phase_does_not_write_cosmo(tmp_path):
+    qm_input = _qm_input(solvent_mode=SolventModeEnum.NONE, solvent="chloroform")
+    control = tmp_path / "control"
+    control.write_text("$title\nwater\n$end\n", encoding="utf-8")
+    assert TurbomoleInputWriter(qm_input).apply_cosmo_control(str(control)) is None
+    assert "$cosmo" not in control.read_text(encoding="utf-8")
+
+
+def test_explicit_solvent_uses_given_epsilon_without_default_refind():
+    qm_input = _qm_input(
+        solvent_mode=SolventModeEnum.EXPLICIT,
+        solvent_epsilon=22.0,
+        solvent_refind=None,
+    )
+    assert cosmo_control_group(qm_input) == [
+        "$cosmo",
+        "epsilon=   22.000",
+        "rsolv= 1.30",
+    ]
+
+
+def test_explicit_solvent_requires_epsilon():
+    with pytest.raises(ValidationError, match="solvent_epsilon"):
+        _qm_input(solvent_mode=SolventModeEnum.EXPLICIT, solvent_epsilon=None)
+
+
+def test_implicit_solvent_rejects_unknown_name():
+    with pytest.raises(ValidationError, match="Unsupported implicit solvent"):
+        _qm_input(solvent_mode=SolventModeEnum.IMPLICIT, solvent="not-a-solvent")
 
 
 def test_replace_control_data_groups_is_idempotent():

@@ -61,7 +61,9 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         f"basis={qm_input.basis_set.basis_set}, "
         f"states={qm_input.states}, "
         f"scfconv={qm_input.scfconv}, "
-        f"scfiterlimit={qm_input.scfiterlimit}"
+        f"scfiterlimit={qm_input.scfiterlimit}, "
+        f"solvent_mode={qm_input.solvent_mode.value}, "
+        f"solvent={qm_input.solvent}"
     )
 
     enter_scratch = getattr(node_runner, "enter_scratch", None)
@@ -107,6 +109,10 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
                 "Appended control_groups: "
                 + ", ".join(group[0].split()[0] for group in appended)
             )
+
+        cosmo_group = writer.apply_cosmo_control("control")
+        if cosmo_group:
+            node_runner.info("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
 
         ok, _, _ = _run_monitored_subprocess(
             node_runner,
