@@ -121,7 +121,9 @@ class TurbomoleInputWriter:
                 str(self.qm_input.charge),
             ]
         )
-        if self.qm_input.multiplicity < 3:
+        # ADC(2) multiplicity is the excited-state spin. The RHF reference stays
+        # closed-shell. DFT still uses multiplicity >= 3 as an unrestricted occupation.
+        if method == TurbomoleMethodEnum.ADC2 or self.qm_input.multiplicity < 3:
             lines.extend(["", "", ""])
         else:
             lines.extend(["n", f"u {self.qm_input.multiplicity - 1}", "*", ""])
@@ -206,7 +208,10 @@ class TurbomoleInputWriter:
             groups.append(
                 [
                     "$excitations",
-                    f"  irrep=a nexc={int(self.qm_input.states)}",
+                    (
+                        f"  irrep=a multiplicity={int(self.qm_input.multiplicity)} "
+                        f"nexc={int(self.qm_input.states)}"
+                    ),
                     "  spectrum states=all operators=diplen",
                 ]
             )

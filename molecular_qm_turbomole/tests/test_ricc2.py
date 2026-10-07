@@ -106,6 +106,31 @@ def test_valid_adc2_request_passes():
     )
 
 
+def test_adc2_triplet_request_passes():
+    validate_turbomole_ricc2_request(
+        _qm_input(method=TurbomoleMethodEnum.ADC2, states=2, multiplicity=3)
+    )
+
+
+@pytest.mark.parametrize("multiplicity", [0, 2, 4, 5])
+def test_adc2_rejects_unsupported_multiplicity(multiplicity):
+    with pytest.raises(ValueError, match="multiplicity"):
+        validate_turbomole_ricc2_request(
+            _qm_input(
+                method=TurbomoleMethodEnum.ADC2,
+                states=2,
+                multiplicity=multiplicity,
+            )
+        )
+
+
+def test_mp2_rejects_triplet_multiplicity():
+    with pytest.raises(ValueError, match="multiplicity=1"):
+        validate_turbomole_ricc2_request(
+            _qm_input(method=TurbomoleMethodEnum.MP2, multiplicity=3)
+        )
+
+
 def test_adc2_define_turns_dft_off_and_assigns_cbas(tmp_path):
     qm_input = _qm_input(method=TurbomoleMethodEnum.ADC2, states=2, name="water-adc2")
     define = tmp_path / "define.inp"
@@ -120,6 +145,25 @@ def test_adc2_define_turns_dft_off_and_assigns_cbas(tmp_path):
     assert "soghf" in text
     scf_block = text.split("scf", 1)[1].split("dft", 1)[0]
     assert "off" in scf_block
+
+
+def test_adc2_triplet_keeps_closed_shell_reference_and_sets_excitations(tmp_path):
+    qm_input = _qm_input(
+        method=TurbomoleMethodEnum.ADC2, states=3, multiplicity=3, name="water-adc2-t"
+    )
+    define = tmp_path / "define.inp"
+    TurbomoleInputWriter(qm_input).write_define_input(str(define))
+    define_text = define.read_text(encoding="utf-8")
+    occupation = define_text.split(str(qm_input.charge), 1)[1].split("scf", 1)[0]
+    assert "u " not in occupation
+    assert occupation.strip() == ""
+
+    control = tmp_path / "control"
+    control.write_text("$title\nwater\n$end\n", encoding="utf-8")
+    TurbomoleInputWriter(qm_input).apply_wavefunction_control(str(control))
+    control_text = control.read_text(encoding="utf-8")
+    assert "adc(2)" in control_text
+    assert "irrep=a multiplicity=3 nexc=3" in control_text
 
 
 def test_hf_define_has_no_cbas(tmp_path):
@@ -159,6 +203,7 @@ def test_wavefunction_control_groups(tmp_path):
     adc_text = control.read_text(encoding="utf-8")
     assert "adc(2)" in adc_text
     assert "$excitations" in adc_text
+    assert "multiplicity=1" in adc_text
     assert "nexc=4" in adc_text
     assert "spectrum states=all operators=diplen" in adc_text
     assert adc_groups[1][0] == "$excitations"

@@ -226,7 +226,16 @@ class TurbomoleQMInput2(Model):
         0, json_schema_extra={"description": "number of states to calculate, zero for ground state only"}
     )
     focus_state: int = Field(1, json_schema_extra={"description": "state of focus"})
-    multiplicity: int = Field(1, json_schema_extra={"description": "singlet,triplet,....."})
+    multiplicity: int = Field(
+        1,
+        json_schema_extra={
+            "description": (
+                "Spin multiplicity. For DFT this is the ground-state multiplicity. "
+                "For ADC(2) it is the excited-state multiplicity on a closed-shell "
+                "reference: 1 (singlet) or 3 (triplet)."
+            )
+        },
+    )
     gridsize: str = Field(
         TURBOMOLE_DEFAULT_GRID_SIZE,
         json_schema_extra={
@@ -543,8 +552,15 @@ def validate_turbomole_ricc2_request(qm_input: TurbomoleQMInput2) -> None:
         )
     if qm_input.open_shell_calculation:
         raise ValueError("Open-shell calculations are not supported in turbomole_ricc2.")
-    if int(qm_input.multiplicity) != 1:
-        raise ValueError("turbomole_ricc2 requires multiplicity=1.")
+    multiplicity = int(qm_input.multiplicity)
+    if method == TurbomoleMethodEnum.ADC2:
+        if multiplicity not in (1, 3):
+            raise ValueError(
+                "ADC(2) on a closed-shell reference supports multiplicity "
+                "1 (singlet) or 3 (triplet)."
+            )
+    elif multiplicity != 1:
+        raise ValueError(f"{method.value} requires multiplicity=1.")
     states = int(qm_input.states)
     if method == TurbomoleMethodEnum.ADC2:
         if states <= 0:

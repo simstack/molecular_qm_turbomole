@@ -60,6 +60,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         f"method={method.value}, "
         f"basis={qm_input.basis_set.basis_set}, "
         f"states={qm_input.states}, "
+        f"multiplicity={qm_input.multiplicity}, "
         f"scfconv={qm_input.scfconv}, "
         f"scfiterlimit={qm_input.scfiterlimit}, "
         f"solvent_mode={qm_input.solvent_mode.value}, "
