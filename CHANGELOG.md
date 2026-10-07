@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.22.0 (2026-10-07)
+
+### Features
+
+- Improve handling of multiplicity in ADC(2) and general QM workflows
+  ([`711fb9c`](https://github.com/simstack/molecular_qm_turbomole/commit/711fb9c8913635bb815a3eab0a084e4ac8240c1c))
+
+
 ## v0.21.0 (2026-09-30)
 
 
