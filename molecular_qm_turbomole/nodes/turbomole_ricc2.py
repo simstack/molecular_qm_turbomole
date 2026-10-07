@@ -17,11 +17,11 @@ from molecular_qm_turbomole.models.turbomole_input import (
     TurbomoleQMInput2,
     validate_turbomole_ricc2_request,
 )
+from molecular_qm_turbomole.lib.ricc2_progress import Ricc2CrashProgress
 from molecular_qm_turbomole.nodes.turbomole2 import (
     _collect_turbomole_info_files,
     _collect_turbomole_restart_files,
     _fail,
-    _run_monitored_subprocess,
     _with_runner_output,
     parameters,
 )
@@ -54,23 +54,25 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
     """
     node_runner = kwargs["node_runner"]
     method = qm_input.method_enum()
-    node_runner.info("Starting turbomole_ricc2 calculation")
-    node_runner.info(
-        "Request summary: "
-        f"method={method.value}, "
-        f"basis={qm_input.basis_set.basis_set}, "
-        f"states={qm_input.states}, "
-        f"multiplicity={qm_input.multiplicity}, "
-        f"scfconv={qm_input.scfconv}, "
-        f"scfiterlimit={qm_input.scfiterlimit}, "
-        f"solvent_mode={qm_input.solvent_mode.value}, "
-        f"solvent={qm_input.solvent}"
-    )
+    progress = Ricc2CrashProgress(node_runner, kwargs, interval_s=30.0)
 
     enter_scratch = getattr(node_runner, "enter_scratch", None)
     if callable(enter_scratch):
         enter_scratch("turbomole_ricc2")
     try:
+        progress.note("Starting turbomole_ricc2 calculation")
+        progress.note(
+            "Request summary: "
+            f"method={method.value}, "
+            f"basis={qm_input.basis_set.basis_set}, "
+            f"states={qm_input.states}, "
+            f"multiplicity={qm_input.multiplicity}, "
+            f"scfconv={qm_input.scfconv}, "
+            f"scfiterlimit={qm_input.scfiterlimit}, "
+            f"solvent_mode={qm_input.solvent_mode.value}, "
+            f"solvent={qm_input.solvent}"
+        )
+        await progress.publish_safely()
         try:
             validate_turbomole_ricc2_request(qm_input)
             validate_molecule_geometry(qm_input)
@@ -80,7 +82,8 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         try:
             writer = TurbomoleInputWriter(qm_input)
             writer.write_files()
-            node_runner.info("Input files generated")
+            progress.note("Input files generated")
+            await progress.publish_safely()
         except Exception as exc:
             _fail(node_runner, f"Error creating Turbomole input files: {exc}")
 
@@ -99,28 +102,28 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
 
         applied = writer.apply_wavefunction_control("control")
         if applied:
-            node_runner.info(
+            progress.note(
                 "Applied wavefunction control groups: "
                 + ", ".join(group[0].split()[0] for group in applied)
             )
 
         if qm_input.control_groups:
             appended = append_control_groups("control", qm_input.control_groups)
-            node_runner.info(
+            progress.note(
                 "Appended control_groups: "
                 + ", ".join(group[0].split()[0] for group in appended)
             )
 
         cosmo_group = writer.apply_cosmo_control("control")
         if cosmo_group:
-            node_runner.info("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
+            progress.note("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
+        await progress.publish_safely()
 
-        ok, _, _ = _run_monitored_subprocess(
-            node_runner,
+        ok, _, _ = await progress.run_monitored(
             "turbomole_dscf",
             "TURBOMOLE HF reference (dscf)",
-            kwargs,
             command="dscf_command",
+            output_name="dscf.out",
         )
         if not ok:
             raise RuntimeError(
@@ -141,12 +144,11 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             final_structure = tout.final_structure
             energies = tout.energies
         else:
-            ok, _, _ = _run_monitored_subprocess(
-                node_runner,
+            ok, _, _ = await progress.run_monitored(
                 "turbomole_ricc2",
                 f"TURBOMOLE {method.value} (ricc2)",
-                kwargs,
                 command="ricc2_command",
+                output_name="ricc2.out",
             )
             if not ok:
                 raise RuntimeError(
@@ -183,7 +185,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
 
         written_xyz = write_final_geometry_xyz(final_structure)
         if written_xyz is not None:
-            node_runner.info(f"Wrote final geometry XYZ file: {written_xyz}")
+            progress.note(f"Wrote final geometry XYZ file: {written_xyz}")
 
         qm_result = QMResult(
             scf_converged=properly_terminated,
@@ -199,11 +201,13 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
 
         await _collect_turbomole_restart_files(node_runner, qm_result)
         _collect_turbomole_info_files(node_runner)
-        node_runner.info(
+        progress.note(
             f"turbomole_ricc2 completed successfully with energy: {final_energy}"
         )
+        await progress.publish_safely()
         return node_runner.succeed()
     except Exception as exc:
+        await progress.publish_safely()
         await _collect_turbomole_restart_files(node_runner)
         _collect_turbomole_info_files(node_runner)
         _fail(

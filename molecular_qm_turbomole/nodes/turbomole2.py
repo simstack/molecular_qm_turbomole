@@ -94,7 +94,7 @@ def _run_monitored_subprocess(
         prefix,
         interval_s=HEARTBEAT_INTERVAL_S,
         task_id=task_id,
-        extra_paths=[f"{name}.log"],
+        extra_paths=[f"{name}.log", "node_runner.log"],
     )
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     start_msg = f"{stamp} Starting {prefix}"
