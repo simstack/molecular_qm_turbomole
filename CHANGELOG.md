@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.24.0 (2026-10-07)
+
+### Features
+
+- Export ricc2 inputs and outputs before a job is killed.
+  ([`4a0b9f6`](https://github.com/simstack/molecular_qm_turbomole/commit/4a0b9f63a87c691dd6112a150f328f63ab4926d2))
+
+
 ## v0.23.0 (2026-10-07)
 
 ### Features
