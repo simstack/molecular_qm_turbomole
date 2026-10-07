@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.23.0 (2026-10-07)
+
+### Features
+
+- Add monitored progress tracking to turbomole_ricc2
+  ([`dca9376`](https://github.com/simstack/molecular_qm_turbomole/commit/dca937664e53a990747e9bc14f4d66127bb049e6))
+
+
 ## v0.22.0 (2026-10-07)
 
 ### Features
