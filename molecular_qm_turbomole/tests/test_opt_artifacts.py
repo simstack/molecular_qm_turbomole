@@ -728,6 +728,7 @@ async def test_run_optimization_chunks_records_timings_heartbeat_and_logs(
     )
     assert heartbeat_cls.call_count == 1
     assert heartbeat_cls.call_args.kwargs["interval_s"] == HEARTBEAT_INTERVAL_S
+    assert "node_runner.log" in heartbeat_cls.call_args.kwargs["extra_paths"]
     assert HEARTBEAT_INTERVAL_S == 1800.0
     assert heartbeat.start.call_count == 1
     assert heartbeat.stop.call_count == 1

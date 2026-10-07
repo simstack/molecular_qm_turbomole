@@ -12,12 +12,12 @@ from molecular_qm_turbomole.lib.output_parser import (
     write_final_geometry_xyz,
 )
 from molecular_qm_turbomole.lib.request_validation import validate_molecule_geometry
+from molecular_qm_turbomole.lib.ricc2_progress import Ricc2CrashProgress
 from molecular_qm_turbomole.models.turbomole_input import (
     TurbomoleMethodEnum,
     TurbomoleQMInput2,
     validate_turbomole_ricc2_request,
 )
-from molecular_qm_turbomole.lib.ricc2_progress import Ricc2CrashProgress
 from molecular_qm_turbomole.nodes.turbomole2 import (
     _collect_turbomole_info_files,
     _collect_turbomole_restart_files,
@@ -72,7 +72,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             f"solvent_mode={qm_input.solvent_mode.value}, "
             f"solvent={qm_input.solvent}"
         )
-        await progress.publish_safely()
+        await progress.publish_safely(force=True)
         try:
             validate_turbomole_ricc2_request(qm_input)
             validate_molecule_geometry(qm_input)
@@ -83,7 +83,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             writer = TurbomoleInputWriter(qm_input)
             writer.write_files()
             progress.note("Input files generated")
-            await progress.publish_safely()
+            await progress.publish_safely(force=True)
         except Exception as exc:
             _fail(node_runner, f"Error creating Turbomole input files: {exc}")
 
@@ -117,7 +117,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         cosmo_group = writer.apply_cosmo_control("control")
         if cosmo_group:
             progress.note("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
-        await progress.publish_safely()
+        await progress.publish_safely(force=True)
 
         ok, _, _ = await progress.run_monitored(
             "turbomole_dscf",
@@ -204,10 +204,10 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
         progress.note(
             f"turbomole_ricc2 completed successfully with energy: {final_energy}"
         )
-        await progress.publish_safely()
+        await progress.publish_safely(force=True)
         return node_runner.succeed()
     except Exception as exc:
-        await progress.publish_safely()
+        await progress.publish_safely(force=True)
         await _collect_turbomole_restart_files(node_runner)
         _collect_turbomole_info_files(node_runner)
         _fail(
