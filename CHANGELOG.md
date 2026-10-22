@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.25.0 (2026-10-22)
+
+### Features
+
+- Add parallel environment configuration for Turbomole execution
+  ([`c61e789`](https://github.com/simstack/molecular_qm_turbomole/commit/c61e789bdf2d31f33b4965c283c48389136e762c))
+
+
 ## v0.24.0 (2026-10-07)
 
 ### Features
