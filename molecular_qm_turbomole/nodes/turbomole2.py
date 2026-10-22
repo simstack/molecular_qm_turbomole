@@ -1,4 +1,6 @@
 import logging
+
+from molecular_qm_turbomole.lib.parallel import turbomole_parallel_env
 import os
 import time
 from datetime import datetime
@@ -111,6 +113,7 @@ def _run_monitored_subprocess(
             node_runner=node_runner,
             command=command,
             name=name,
+            env=turbomole_parallel_env(kwargs, node_runner),
         )
     finally:
         wall_s = time.monotonic() - wall_start
@@ -512,6 +515,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             node_runner=node_runner,
             command="define_command",
             name="turbomole_define",
+            env=turbomole_parallel_env(kwargs, node_runner),
         )
         if not ok:
             raise RuntimeError("Execution of Turbomole define failed")

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from molecular_qm_turbomole.lib.parallel import turbomole_parallel_env
+
 from molecular_qm_models.molecule import MoleculeList
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.control_utils import append_control_groups
@@ -92,6 +94,7 @@ async def turbomole_ricc2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResu
             node_runner=node_runner,
             command="define_command",
             name="turbomole_define",
+            env=turbomole_parallel_env(kwargs, node_runner),
         )
         if not ok:
             raise RuntimeError("Execution of Turbomole define failed")

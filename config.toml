@@ -90,12 +90,22 @@ define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -109,24 +119,44 @@ escf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 escf > escf.out 2>&1
 """
 aoforce_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 aoforce > aoforce.out 2>&1
 """
 dscf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 dscf > dscf.out 2>&1
 """
 ricc2_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 ricc2 > ricc2.out 2>&1
 """
 
@@ -263,12 +293,22 @@ define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -282,24 +322,44 @@ escf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 escf > escf.out 2>&1
 """
 aoforce_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 aoforce > aoforce.out 2>&1
 """
 dscf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 dscf > dscf.out 2>&1
 """
 ricc2_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 ricc2 > ricc2.out 2>&1
 """
 
@@ -437,12 +497,22 @@ define_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 define < define.inp > define.out 2>&1
 """
 run_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 if [ -f turbomole_opt_cycles ]; then
   jobex -ri -c "$(cat turbomole_opt_cycles)" > jobex.out 2>&1
 else
@@ -456,24 +526,44 @@ escf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 escf > escf.out 2>&1
 """
 aoforce_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 aoforce > aoforce.out 2>&1
 """
 dscf_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 dscf > dscf.out 2>&1
 """
 ricc2_command = """
 set -e
 if [ -f /etc/profile.d/modules.sh ]; then . /etc/profile.d/modules.sh; fi
 module load chem/turbomole/8.0
+if [ -n "${SIMSTACK_TURBOMOLE_CORES:-}" ]; then
+  export PARA_ARCH=SMP
+  export PARNODES="$SIMSTACK_TURBOMOLE_CORES"
+  export OMP_NUM_THREADS="$SIMSTACK_TURBOMOLE_CORES"
+fi
 ricc2 > ricc2.out 2>&1
 """
 
