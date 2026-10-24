@@ -1,3 +1,11 @@
+from molecular_qm_turbomole.models.multistep_optimizer import (
+    OptimizationStepInput,
+    PreOptimizerInput,
+)
+from molecular_qm_turbomole.models.semiempirical import (
+    TurbomoleSemiempiricalInput,
+    TurbomoleSemiempiricalMethod,
+)
 from molecular_qm_turbomole.models.turbomole_functional import (
     TurbomoleFunctional,
     TurbomoleFunctionalEnum,
@@ -30,4 +38,8 @@ __all__ = [
     "TurbomoleFunctionalEnum",
     "TurbomoleMethodEnum",
     "TurbomoleQMInput2",
+    "TurbomoleSemiempiricalMethod",
+    "TurbomoleSemiempiricalInput",
+    "OptimizationStepInput",
+    "PreOptimizerInput",
 ]
