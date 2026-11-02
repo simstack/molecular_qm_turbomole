@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.3 (2026-11-02)
+
+### Bug Fixes
+
+- Remove turbomole3 now that the workflow lives in jia-project
+  ([`ae13753`](https://github.com/simstack/molecular_qm_turbomole/commit/ae1375383336f046625eb1c137678180e909cdd6))
+
+
 ## v0.28.2 (2026-11-02)
 
 ### Bug Fixes
