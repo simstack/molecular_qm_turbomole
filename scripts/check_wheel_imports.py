@@ -24,6 +24,7 @@ sys.path.insert(0, sys.argv[1])
 for name in (
     'molecular_qm_turbomole.lib.parallel',
     'molecular_qm_turbomole.nodes.turbomole2',
+    'molecular_qm_turbomole.nodes.turbomole3',
     'molecular_qm_turbomole.nodes.turbomole_ricc2',
     'hyperpolarizibility.hyperpol_runner',
     'hyperpolarizibility.hyperpolarizibility2',

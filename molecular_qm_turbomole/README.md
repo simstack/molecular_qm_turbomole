@@ -3,7 +3,7 @@
 ## Layout
 
 - `models/` — `TurbomoleQMInput2` and related embedded models
-- `nodes/` — `turbomole2` node (single-point and geometry optimization)
+- `nodes/` — `turbomole2` (single-point and geometry optimization) and `turbomole3` (preoptimizer steps, then turbomole2)
 - `lib/` — input writer, output parser, control helpers, env bootstrap
 - `testing/` — manual/integration scripts for small molecules
 - `tests/` — unit tests that do not require TURBOMOLE binaries
