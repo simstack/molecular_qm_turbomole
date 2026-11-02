@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional, Union
 
 from molecular_qm_models.molecule import Molecule
 from molecular_qm_models.qm_result import QMResult
@@ -91,7 +90,7 @@ def _write_semiempirical_define_input(
 @node(parameters=parameters)
 async def turbomole_semiempirical(
     molecule: Molecule,
-    opts: Optional[TurbomoleSemiempiricalInput] = None,
+    opts: TurbomoleSemiempiricalInput,
     **kwargs,
 ) -> SimstackResult:
     """
@@ -107,8 +106,8 @@ async def turbomole_semiempirical(
     """
     node_runner = kwargs["node_runner"]
     if opts is None:
-        opts = TurbomoleSemiempiricalInput()
-    elif isinstance(opts, (str, TurbomoleSemiempiricalMethod)):
+        raise ValueError("TurbomoleSemiempiricalInput is required")
+    if isinstance(opts, (str, TurbomoleSemiempiricalMethod)):
         opts = TurbomoleSemiempiricalInput(method=TurbomoleSemiempiricalMethod.coerce(opts))
 
     method_label = opts.method.value if hasattr(opts.method, "value") else str(opts.method)
