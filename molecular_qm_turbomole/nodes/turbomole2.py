@@ -18,7 +18,10 @@ from molecular_qm_turbomole.lib.opt_artifacts import (
 from molecular_qm_turbomole.lib.opt_watchdog import WATCHDOG_SIDECAR
 from molecular_qm_turbomole.lib.optimization_timing import attach_optimizer_timings
 from molecular_qm_turbomole.lib.process_heartbeat import ProcessHeartbeat
-from molecular_qm_turbomole.lib.request_validation import validate_molecule_geometry
+from molecular_qm_turbomole.lib.request_validation import (
+    validate_dispersion_parametrization,
+    validate_molecule_geometry,
+)
 from molecular_qm_turbomole.lib.hyperpol import (
     apply_hyperpolarizability_control,
     hyperpolarizability_requested,
@@ -32,6 +35,8 @@ from molecular_qm_turbomole.lib.input_writer import (
 )
 from molecular_qm_turbomole.lib.output_parser import (
     TurbomoleOutputParser,
+    require_converged_ground_state,
+    require_turbomole_normal_termination,
     write_final_geometry_xyz,
 )
 from molecular_qm_turbomole.models.turbomole_input import (
@@ -82,6 +87,19 @@ def _fail(node_runner, message: str) -> None:
 def _process_cpu_seconds() -> float:
     times = os.times()
     return float(times.user + times.system + times.children_user + times.children_system)
+
+
+def _append_node_runner_log(message) -> None:
+    """Append one node_runner.log line and flush it to disk."""
+    if message is None or not str(message).strip():
+        raise ValueError("message is required")
+    text = str(message)
+    line = text if text.endswith("\n") else text + "\n"
+    path = Path("node_runner.log")
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _run_monitored_subprocess(
@@ -176,7 +194,9 @@ TURBOMOLE_INFO_STATIC_FILES = (
     "vibspectrum",
     "escf.out",
     "ricc2.out",
+    "dscf_problem",
     "hyperpols",
+    "node_runner.log",
     HEARTBEAT_LOG,
     WATCHDOG_SIDECAR,
 )
@@ -192,6 +212,7 @@ TURBOMOLE_INFO_PATTERNS = (
 def _validate_request(qm_input: TurbomoleQMInput2) -> None:
     validate_turbomole2_method(qm_input)
     validate_molecule_geometry(qm_input)
+    validate_dispersion_parametrization(qm_input)
     validate_hyperpolarizability_request(qm_input)
 
 
@@ -281,7 +302,7 @@ def _collect_turbomole_info_files(node_runner) -> None:
             if p.is_file():
                 matched_files.add(p)
 
-    for p in sorted(matched_files, key=lambda path: str(path.name)):
+    for p in sorted(matched_files, key=lambda path: (path.name == "node_runner.log", str(path.name))):
         fname = p.name
         if fname in restart_names:
             continue
@@ -289,7 +310,7 @@ def _collect_turbomole_info_files(node_runner) -> None:
             _append_artifact_file(
                 node_runner,
                 p,
-                in_memory=fname == "hyperpols",
+                in_memory=fname in {"hyperpols", "node_runner.log"},
                 info_only=True,
             )
         except Exception as e:
@@ -470,34 +491,46 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
 
     SimstackResult:
         result (QMResult): Final energy, structure, and convergence status.
+        files (List[FileStack]): Restart and output files that exist on disk.
+            Returned on success and on failure.
+        info_files (List[FileStack]): Logs and diagnostics that exist on disk,
+            including node_runner.log. Returned on success and on failure.
         hyperpolarizability (SimpleTable): Frequency-pair beta_zzz in 10^-30 esu (z-dipole frame).
         optimization_timing (SimpleTable): Per-chunk and summary wall/CPU times.
             Frequency jobs add a separate ``frequencies`` row.
     """
     node_runner = kwargs["node_runner"]
-    node_runner.info("Starting turbomole2 calculation")
-    node_runner.info(
-        "Request summary: "
-        f"optimization={qm_input.optimization}, "
-        f"gradients={qm_input.gradients}, "
-        f"basis={qm_input.basis_set.basis_set}, "
-        f"functional={qm_input.functional.keyword()}, "
-        f"dispersion={qm_input.dispersion_enum().value}, "
-        f"gridsize={qm_input.gridsize}, "
-        f"scfconv={qm_input.scfconv}, "
-        f"scfiterlimit={qm_input.scfiterlimit}, "
-        f"max_opt_cycles={qm_input.max_opt_cycles}, "
-        f"frequencies={qm_input.frequencies}, "
-        f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
-        f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}, "
-        f"solvent_mode={qm_input.solvent_mode.value}, "
-        f"solvent={qm_input.solvent}"
-    )
+    original_info = node_runner.info
 
-    enter_scratch = getattr(node_runner, "enter_scratch", None)
-    if callable(enter_scratch):
-        enter_scratch("turbomole2")
+    def info(msg):
+        original_info(msg)
+        _append_node_runner_log(msg)
+
+    node_runner.info = info
+    qm_result = None
+    failure_message = None
     try:
+        enter_scratch = getattr(node_runner, "enter_scratch", None)
+        if callable(enter_scratch):
+            enter_scratch("turbomole2")
+        node_runner.info("Starting turbomole2 calculation")
+        node_runner.info(
+            "Request summary: "
+            f"optimization={qm_input.optimization}, "
+            f"gradients={qm_input.gradients}, "
+            f"basis={qm_input.basis_set.basis_set}, "
+            f"functional={qm_input.functional.keyword()}, "
+            f"dispersion={qm_input.dispersion_enum().value}, "
+            f"gridsize={qm_input.gridsize}, "
+            f"scfconv={qm_input.scfconv}, "
+            f"scfiterlimit={qm_input.scfiterlimit}, "
+            f"max_opt_cycles={qm_input.max_opt_cycles}, "
+            f"frequencies={qm_input.frequencies}, "
+            f"hyperpolarizability={qm_input.hyperpolarizability.value}, "
+            f"hyperpol_frequency_nm={hyperpolarizability_wavelength_nm(qm_input):.10g}, "
+            f"solvent_mode={qm_input.solvent_mode.value}, "
+            f"solvent={qm_input.solvent}"
+        )
         try:
             _validate_request(qm_input)
         except Exception as exc:
@@ -536,6 +569,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             node_runner.info("Configured TURBOMOLE COSMO: " + " ".join(cosmo_group))
 
         tracker = await _run_ground_state(qm_input, node_runner, kwargs)
+        require_converged_ground_state(".", optimization=qm_input.optimization)
 
         if hyperpolarizability_requested(qm_input):
             wavelength_nm = hyperpolarizability_wavelength_nm(qm_input)
@@ -555,6 +589,7 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
                 raise RuntimeError(
                     "Turbomole hyperpolarizability step failed. Check turbomole_response.log and escf.out."
                 )
+            require_turbomole_normal_termination("escf.out", "escf")
             verify_dynamic_hyperpols_output(qm_input)
             hyperpol_table = parse_hyperpolarizability_table()
             if hyperpol_table is not None:
@@ -608,18 +643,20 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
             task_status=TaskStatus.COMPLETED,
         )
         node_runner.result = qm_result
-
-        await _collect_turbomole_restart_files(node_runner, qm_result)
-        _collect_turbomole_info_files(node_runner)
         node_runner.info(
             f"turbomole2 completed successfully with energy: {tout.final_energy}"
         )
-        return node_runner.succeed()
     except Exception as exc:
-        await _collect_turbomole_restart_files(node_runner)
-        _collect_turbomole_info_files(node_runner)
-        _fail(node_runner, _with_runner_output(node_runner, f"Turbomole calculation failed: {exc}"))
+        failure_message = _with_runner_output(
+            node_runner, f"Turbomole calculation failed: {exc}"
+        )
+        _append_node_runner_log(failure_message)
     finally:
+        await _collect_turbomole_restart_files(node_runner, qm_result)
+        _collect_turbomole_info_files(node_runner)
         leave_scratch = getattr(node_runner, "leave_scratch", None)
         if callable(leave_scratch):
             leave_scratch()
+    if failure_message is not None:
+        _fail(node_runner, failure_message)
+    return node_runner.succeed()

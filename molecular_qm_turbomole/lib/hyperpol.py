@@ -20,12 +20,22 @@ ALIGNMENT_TOL = 1e-8
 _DIPOLE_CANDIDATES = ("control", "ridft.out", "dscf.out", "job.last", "escf.out")
 
 _NUMBER_RE = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?"
+# TURBOMOLE 8 prints the DC placeholder (about 4.556e10 nm) as "inf".
+_FREQ_TOKEN_RE = rf"(?:{_NUMBER_RE}|inf(?:inity)?)"
+# λ(nm) * ω(Hartree) from the historical hyperpols static pair.
+_HARTREE_NM = 45.56335186
+# Below this, an a.u. frequency is the static placeholder rather than an optical λ.
+_STATIC_AU_CUTOFF = 1.0e-6
 _PAIR_HEADER_RE = re.compile(
     r"\b(?P<number>\d+)(?:st|nd|rd|th)\s+pair\s+of\s+frequencies\b",
     re.IGNORECASE,
 )
 _FREQ_NM_RE = re.compile(
-    rf"Frequencies\s*/\s*nm:\s+(?P<left>{_NUMBER_RE})\s+(?P<right>{_NUMBER_RE})",
+    rf"Frequencies\s*/\s*nm:\s+(?P<left>{_FREQ_TOKEN_RE})\s+(?P<right>{_FREQ_TOKEN_RE})",
+    re.IGNORECASE,
+)
+_FREQ_AU_RE = re.compile(
+    rf"^Frequencies:\s+(?P<left>{_FREQ_TOKEN_RE})\s+(?P<right>{_FREQ_TOKEN_RE})\s*$",
     re.IGNORECASE,
 )
 _COMPONENT_VALUE_RE = re.compile(
@@ -101,16 +111,32 @@ def verify_hyperpolarizability_control(control_text: str, wavelength_nm: float) 
 def parse_hyperpols_frequency_pairs(
     hyperpols_path: Path = Path("hyperpols"),
 ) -> list[tuple[float, float]]:
+    """Return frequency pairs as wavelengths in nm.
+
+    TURBOMOLE 8 writes the static member of a pair as ``inf`` on
+    ``Frequencies / nm`` lines. Those lines are preferred. A file that only
+    has atomic-unit ``Frequencies:`` lines is converted from Hartree.
+    """
     if not hyperpols_path.exists():
         return []
-    pairs: list[tuple[float, float]] = []
-    for line in hyperpols_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        match = _FREQ_NM_RE.search(line)
-        if match:
-            pairs.append(
-                (_parse_float_token(match.group("left")), _parse_float_token(match.group("right")))
-            )
-    return pairs
+    text = hyperpols_path.read_text(encoding="utf-8", errors="replace")
+    nm_pairs = [
+        (_parse_wavelength_token(match.group("left")), _parse_wavelength_token(match.group("right")))
+        for match in _FREQ_NM_RE.finditer(text)
+    ]
+    au_pairs = [
+        (
+            _au_frequency_to_nm(_parse_wavelength_token(match.group("left"))),
+            _au_frequency_to_nm(_parse_wavelength_token(match.group("right"))),
+        )
+        for line in text.splitlines()
+        if (match := _FREQ_AU_RE.match(line.strip()))
+    ]
+    if any(abs(left) > 1.0e-12 or abs(right) > 1.0e-12 for left, right in nm_pairs):
+        return nm_pairs
+    if au_pairs:
+        return au_pairs
+    return nm_pairs
 
 
 def verify_dynamic_hyperpols_output(
@@ -123,6 +149,11 @@ def verify_dynamic_hyperpols_output(
     if wavelength_nm <= 0.0:
         return parse_hyperpols_frequency_pairs(hyperpols_path)
 
+    if not hyperpols_path.exists():
+        raise RuntimeError(
+            "Dynamic TURBOMOLE hyperpolarizability requested "
+            f"(lambda_nm={wavelength_nm:.10g}) but '{hyperpols_path}' was not produced."
+        )
     pairs = parse_hyperpols_frequency_pairs(hyperpols_path)
     if not pairs:
         raise RuntimeError(
@@ -319,6 +350,18 @@ def _rotation_matrix_to_align_with_positive_z(dipole_vector: np.ndarray) -> np.n
 
 def _parse_float_token(token: str) -> float:
     return float(token.replace("D", "E").replace("d", "e"))
+
+
+def _parse_wavelength_token(token: str) -> float:
+    if token.lower().startswith("inf"):
+        return 0.0
+    return _parse_float_token(token)
+
+
+def _au_frequency_to_nm(omega_hartree: float) -> float:
+    if abs(omega_hartree) < _STATIC_AU_CUTOFF:
+        return 0.0
+    return _HARTREE_NM / abs(omega_hartree)
 
 
 def _number_tokens(text: str) -> list[float]:

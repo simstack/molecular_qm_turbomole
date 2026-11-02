@@ -6,6 +6,7 @@ from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.lib.output_parser import (
     parse_ricc2_file,
+    require_converged_ground_state,
     require_turbomole_normal_termination,
 )
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
@@ -410,6 +411,27 @@ def test_parse_ricc2_reports_dscf_abend_instead_of_missing_energy(tmp_path):
     )
     with pytest.raises(ValueError, match="ended abnormally"):
         parse_ricc2_file(ricc2_out)
+
+
+def test_ground_state_abort_reports_ridft_dft_d_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "dscf_problem").write_text("", encoding="utf-8")
+    (tmp_path / "ridft.out").write_text(
+        "Name of XC-Functional: Minnesota M06-2X hybrid exchange functional\n"
+        " ERROR in DFT-D with BJ damping\n"
+        " Functional not parametrized for DFT-D BJ!\n"
+        " program stopped due to: functional name unknown in DFT-D3 BJ\n"
+        " ridft ended abnormally\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="functional name unknown in DFT-D3 BJ"):
+        require_converged_ground_state(tmp_path)
+
+
+def test_converged_ridft_is_accepted(tmp_path):
+    (tmp_path / "energy").write_text("$energy\n1  -76.0\n$end\n", encoding="utf-8")
+    (tmp_path / "ridft.out").write_text("ridft ended normally\n", encoding="utf-8")
+    require_converged_ground_state(tmp_path)
 
 
 def test_parse_ricc2_missing_energy_raises(tmp_path):

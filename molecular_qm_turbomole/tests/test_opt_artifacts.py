@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from odmantic import ObjectId
 
+from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
+from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.opt_artifacts import (
     OptimizationChartTracker,
     cleanup_opt_snapshots,
@@ -32,6 +34,13 @@ from molecular_qm_turbomole.lib.optimization_timing import (
     optimization_timing_table,
 )
 from molecular_qm_turbomole.lib.output_parser import parse_energy_history, parse_gradient_history
+from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
+from molecular_qm_turbomole.models.turbomole_input import (
+    TurbomoleBasisSet2,
+    TurbomoleDispersionCorrection,
+    TurbomoleMethodEnum,
+    TurbomoleQMInput2,
+)
 from molecular_qm_turbomole.nodes.turbomole2 import (
     HEARTBEAT_INTERVAL_S,
     HEARTBEAT_LOG,
@@ -40,7 +49,9 @@ from molecular_qm_turbomole.nodes.turbomole2 import (
     _collect_turbomole_restart_files,
     _run_optimization_chunks,
     _with_runner_output,
+    turbomole2,
 )
+from simstack.core.node_runner import NodeRunner
 
 turbomole2_module = importlib.import_module("molecular_qm_turbomole.nodes.turbomole2")
 
@@ -505,6 +516,8 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     (tmp_path / "jobex.out").write_text("jobex out\n", encoding="utf-8")
     (tmp_path / "escf.out").write_text("escf out\n", encoding="utf-8")
     (tmp_path / "hyperpols").write_text("hyperpols content\n", encoding="utf-8")
+    (tmp_path / "dscf_problem").write_text("\n", encoding="utf-8")
+    (tmp_path / "node_runner.log").write_text("starting line\n", encoding="utf-8")
     (tmp_path / HEARTBEAT_LOG).write_text("heartbeat\n", encoding="utf-8")
 
     # Create restart files (which must NOT be added to info_files)
@@ -545,16 +558,80 @@ def test_collect_turbomole_info_files(tmp_path, monkeypatch):
     assert "jobex.out" in collected_names
     assert "escf.out" in collected_names
     assert "hyperpols" in collected_names
+    assert "dscf_problem" in collected_names
+    assert "node_runner.log" in collected_names
     assert HEARTBEAT_LOG in collected_names
     hyperpols_fs = next(fs for fs in node_runner.info_files if fs.name == "hyperpols")
     assert hyperpols_fs.in_memory is True
+    log_fs = next(fs for fs in node_runner.info_files if fs.name == "node_runner.log")
+    assert log_fs.in_memory is True
     assert all(
-        fs.in_memory is False for fs in node_runner.info_files if fs.name != "hyperpols"
+        fs.in_memory is False
+        for fs in node_runner.info_files
+        if fs.name not in {"hyperpols", "node_runner.log"}
     )
 
     # Restart files must NOT be in info_files
     for restart_name in ["control", "coord", "basis", "auxbasis", "mos", "energy", "gradient"]:
         assert restart_name not in collected_names
+
+
+@pytest.mark.asyncio
+async def test_turbomole2_failure_returns_existing_files_and_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "control").write_text("$end\n", encoding="utf-8")
+    (tmp_path / "ridft.out").write_text("DFT-D BJ not parametrized\n", encoding="utf-8")
+    (tmp_path / "dscf_problem").write_text("\n", encoding="utf-8")
+    molecule = Molecule()
+    molecule.add_atom(Atom.from_coords("O", [0.0, 0.0, 0.1173]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, 0.7572, -0.4692]))
+    molecule.add_atom(Atom.from_coords("H", [0.0, -0.7572, -0.4692]))
+    qm_input = TurbomoleQMInput2(
+        molecule=molecule,
+        method=TurbomoleMethodEnum.ADC2,
+        states=3,
+        functional=TurbomoleFunctionalEnum.B3_LYP,
+        basis_set=TurbomoleBasisSet2(basis_set="def2-SVP"),
+        dispersion_correction=TurbomoleDispersionCorrection(
+            value=DispersionCorrectionEnum.NONE
+        ),
+    )
+    node_runner = NodeRunner(name="turbomole2", task_id="task-1")
+    left_scratch = []
+    node_runner.enter_scratch = lambda *args, **kwargs: None
+    node_runner.leave_scratch = lambda *args, **kwargs: left_scratch.append(True)
+
+    def fake_from_local_file(path, **kwargs):
+        file_path = Path(path)
+        return SimpleNamespace(
+            name=file_path.name,
+            in_memory=kwargs["in_memory"],
+            content=file_path.read_bytes(),
+        )
+
+    fn = getattr(turbomole2, "__wrapped__", turbomole2)
+    with patch(
+        "molecular_qm_turbomole.nodes.turbomole2.FileStack.from_local_file",
+        side_effect=fake_from_local_file,
+    ):
+        with pytest.raises(RuntimeError, match="Turbomole calculation failed"):
+            await fn(qm_input, node_runner=node_runner)
+
+    assert left_scratch == [True]
+    assert "control" in {fs.name for fs in node_runner.files}
+    info_names = {fs.name for fs in node_runner.info_files}
+    assert "ridft.out" in info_names
+    assert "dscf_problem" in info_names
+    assert "node_runner.log" in info_names
+    log_fs = next(fs for fs in node_runner.info_files if fs.name == "node_runner.log")
+    assert log_fs.in_memory is True
+    log_text = log_fs.content.decode()
+    assert "Starting turbomole2 calculation" in log_text
+    assert "Turbomole calculation failed" in log_text
+    assert "only supports DFT" in log_text
+    assert "Starting turbomole2 calculation" in (tmp_path / "node_runner.log").read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.asyncio

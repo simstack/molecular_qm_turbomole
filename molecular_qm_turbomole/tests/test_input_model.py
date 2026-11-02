@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from molecular_qm_models.dispersion_correction import DispersionCorrectionEnum
 from molecular_qm_models.molecule import Atom, Molecule
 from molecular_qm_turbomole.lib.cosmo import cosmo_control_group
+from molecular_qm_turbomole.lib.request_validation import validate_dispersion_parametrization
 from molecular_qm_turbomole.lib.control_utils import replace_control_data_groups
 from molecular_qm_turbomole.lib.input_writer import TurbomoleInputWriter
 from molecular_qm_turbomole.models.turbomole_functional import TurbomoleFunctionalEnum
@@ -193,6 +194,31 @@ def test_input_writer_emits_top_level_dispersion(tmp_path):
     define_text = define.read_text(encoding="utf-8")
     assert "dsp" in define_text
     assert "bj" in define_text.split("dsp", 1)[1]
+
+
+def test_d3bj_is_rejected_for_m06_2x():
+    qm_input = _qm_input(
+        functional=TurbomoleFunctionalEnum.M06_2X,
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+    )
+    with pytest.raises(ValueError, match="m06-2x"):
+        validate_dispersion_parametrization(qm_input)
+
+
+def test_zero_damping_d3_is_accepted_for_m06_2x():
+    qm_input = _qm_input(
+        functional=TurbomoleFunctionalEnum.M06_2X,
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3),
+    )
+    validate_dispersion_parametrization(qm_input)
+
+
+def test_d3bj_is_accepted_for_b3_lyp():
+    qm_input = _qm_input(
+        functional=TurbomoleFunctionalEnum.B3_LYP,
+        dispersion_correction=TurbomoleDispersionCorrection(value=DispersionCorrectionEnum.D3BJ),
+    )
+    validate_dispersion_parametrization(qm_input)
 
 
 def test_dispersion_correction_is_independent_of_functional():

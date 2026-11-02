@@ -196,6 +196,53 @@ def parse_coord_file(coord_path: Path) -> Optional[Molecule]:
     return molecule
 
 
+def require_converged_ground_state(directory: str | Path = ".", *, optimization: bool = False) -> None:
+    """Stop before escf when ridft/jobex aborted and left no energy file.
+
+    An empty ``dscf_problem`` still means the SCF aborted. escf then exits
+    without writing ``hyperpols`` because ``$actual step`` is still set.
+    """
+    root = Path(directory)
+    output_name = "job.last" if optimization else "ridft.out"
+    output_path = root / output_name
+    if optimization and not output_path.is_file():
+        output_path = root / "jobex.out"
+    text = ""
+    if output_path.is_file():
+        text = output_path.read_text(encoding="utf-8", errors="replace")
+    lowered = text.lower()
+    problem = root / "dscf_problem"
+    energy = root / "energy"
+    aborted = (
+        problem.exists()
+        or not energy.is_file()
+        or "ended abnormally" in lowered
+        or "program stopped" in lowered
+    )
+    if not aborted:
+        return
+    reasons = []
+    if problem.exists():
+        detail = problem.read_text(encoding="utf-8", errors="replace").strip()
+        reasons.append("dscf_problem is present" + (f" ({detail})" if detail else " and empty"))
+    if not energy.is_file():
+        reasons.append("the energy file was not written")
+    error_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if "error" in line.lower() or "program stopped" in line.lower()
+    ]
+    message = "TURBOMOLE ground state aborted before escf, so hyperpols was not written."
+    if reasons:
+        message = f"{message} {'; '.join(reasons)}."
+    if error_lines:
+        message = f"{message}\n" + "\n".join(error_lines[-8:])
+    elif text:
+        tail = "\n".join(text.splitlines()[-_PROGRAM_OUTPUT_TAIL_LINES:])
+        message = f"{message}\nLast lines of {output_path.name}:\n{tail}"
+    raise ValueError(message)
+
+
 def require_turbomole_normal_termination(path: str | Path, program: str) -> None:
     output_path = Path(path)
     if not output_path.is_file():

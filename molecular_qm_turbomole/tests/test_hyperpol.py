@@ -178,6 +178,53 @@ def test_parse_and_verify_dynamic_hyperpols(tmp_path):
     assert not (tmp_path / "hyperpol_processed.json").exists()
 
 
+def test_verify_dynamic_hyperpols_accepts_turbomole8_inf_wavelength(tmp_path):
+    hyperpols = tmp_path / "hyperpols"
+    hyperpols.write_text(
+        "\n".join(
+            [
+                "                           1st pair of frequencies",
+                " Frequencies:            0.1000073587796313E-08     0.1000073587796313E-08",
+                " Frequencies / nm:      inf                        inf",
+                " zzz   1.0",
+                "                           2nd pair of frequencies",
+                " Frequencies:            0.1000073587796313E-08     0.3504873281538461E-01",
+                " Frequencies / nm:      inf                        1300.000000000000",
+                " zzz   34.0",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    model = _qm_input(
+        hyperpolarizability=HyperpolarizabilityModeEnum.DYNAMIC,
+        hyperpol_frequency_nm=1300.0,
+    )
+    pairs = verify_dynamic_hyperpols_output(model, hyperpols)
+    assert any(abs(right - 1300.0) < 1e-6 for _left, right in pairs)
+
+
+def test_verify_dynamic_hyperpols_reads_au_when_nm_line_is_static(tmp_path):
+    hyperpols = tmp_path / "hyperpols"
+    hyperpols.write_text(
+        "\n".join(
+            [
+                " Frequencies:             0.000000000000000          0.000000000000000",
+                " Frequencies / nm:      inf                        inf",
+                " Frequencies:             0.035035000000000          0.035035000000000",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    model = _qm_input(
+        hyperpolarizability=HyperpolarizabilityModeEnum.DYNAMIC,
+        hyperpol_frequency_nm=1300.0,
+    )
+    pairs = verify_dynamic_hyperpols_output(model, hyperpols)
+    assert any(abs(left) > 1.0 or abs(right) > 1.0 for left, right in pairs)
+
+
 def test_verify_dynamic_hyperpols_rejects_static_only(tmp_path):
     hyperpols = tmp_path / "hyperpols"
     hyperpols.write_text(
