@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.1 (2026-11-02)
+
+### Bug Fixes
+
+- Keep turbomole2 files, final molecule, and orbital energies on QMResult
+  ([`b0fcb69`](https://github.com/simstack/molecular_qm_turbomole/commit/b0fcb69b046cb76b065f300b27f3b4af952037f2))
+
+
 ## v0.28.0 (2026-11-02)
 
 ### Features
