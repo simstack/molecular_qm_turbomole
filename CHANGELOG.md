@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.2 (2026-11-02)
+
+### Bug Fixes
+
+- Require semiempirical input so node registration can resolve it
+  ([`f245356`](https://github.com/simstack/molecular_qm_turbomole/commit/f24535616619e2a4ab5925832dfa6e0e9f1a0635))
+
+
 ## v0.28.1 (2026-11-02)
 
 ### Bug Fixes
