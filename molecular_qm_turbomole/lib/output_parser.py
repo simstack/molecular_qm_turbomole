@@ -54,17 +54,7 @@ class TurbomoleOutputParser:
         if os.path.exists(energy_file):
             if self.node_runner:
                 self.node_runner.info(f"Parsing energy from {energy_file}")
-            with open(energy_file, encoding="utf-8") as handle:
-                for line in handle:
-                    if line.startswith("$") or not line.strip():
-                        continue
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        try:
-                            self.final_energy = float(parts[1])
-                            self.energies.append(self.final_energy)
-                        except ValueError:
-                            continue
+            self.final_energy, self.energies = _final_state_energies(Path(energy_file))
             if self.final_energy is not None:
                 self.properly_terminated = True
 
@@ -79,8 +69,195 @@ class TurbomoleOutputParser:
             self.vibrational_frequencies = parse_vibspectrum_file(vibspectrum_path)
 
 
+_HARTREE_TO_EV = 27.211386245988
+_EIGENVALUE_RE = re.compile(
+    r"^\s*(\d+)\s+(\S+)\s+eigenvalue=\s*([-+0-9.DdEe]+)",
+    re.IGNORECASE,
+)
+_SHELL_LINE_RE = re.compile(
+    r"^\s*(\S+)\s+(\d+)(?:\s*-\s*(\d+))?\s+\(\s*([-+0-9.DdEe]+)\s*\)\s*$"
+)
+
+
 def _parse_fortran_float(text: str) -> float:
     return float(text.replace("D", "E").replace("d", "e"))
+
+
+def _final_state_energies(path: Path) -> tuple[Optional[float], list[float]]:
+    """Return the last total energy of each electronic state.
+
+    Optimization and SCF cycles stay in the energy file for the charts. The
+    result keeps only the last SCF energy. When the ``$energy`` header marks
+    the fourth column as an excitation energy, the excited-state total energy
+    is that last SCF energy plus the last excitation energy.
+    """
+    header = ""
+    rows: list[tuple[float, Optional[float]]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("$"):
+            if stripped.lower().startswith("$energy"):
+                header = stripped.lower()
+            continue
+        parts = stripped.split()
+        if len(parts) < 2:
+            continue
+        try:
+            scf_energy = _parse_fortran_float(parts[1])
+        except ValueError:
+            continue
+        excitation = None
+        if len(parts) >= 4 and "excit" in header:
+            try:
+                excitation = _parse_fortran_float(parts[3])
+            except ValueError:
+                excitation = None
+        rows.append((scf_energy, excitation))
+    if not rows:
+        return None, []
+    scf_energy, excitation = rows[-1]
+    energies = [scf_energy]
+    if excitation is not None:
+        energies.append(scf_energy + excitation)
+    return scf_energy, energies
+
+
+def _control_group_body(text: str, group: str) -> Optional[list[str]]:
+    prefix = f"${group}".lower()
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip().lower().startswith(prefix):
+            start = index + 1
+            break
+    if start is None:
+        return None
+    body: list[str] = []
+    for line in lines[start:]:
+        if line.strip().startswith("$"):
+            break
+        if line.strip():
+            body.append(line)
+    return body
+
+
+def _occupations_from_shells(lines: list[str]) -> dict[tuple[str, int], float]:
+    occupations: dict[tuple[str, int], float] = {}
+    for line in lines:
+        match = _SHELL_LINE_RE.match(line.strip())
+        if match is None:
+            continue
+        irrep = match.group(1).lower()
+        first = int(match.group(2))
+        last = int(match.group(3)) if match.group(3) else first
+        if last < first:
+            raise ValueError(f"Invalid TURBOMOLE shell range {irrep} {first}-{last}")
+        occupation = _parse_fortran_float(match.group(4))
+        for orbital_index in range(first, last + 1):
+            key = (irrep, orbital_index)
+            previous = occupations.get(key)
+            if previous is not None and previous != occupation:
+                raise ValueError(
+                    f"Conflicting occupation for {irrep} orbital {orbital_index}: "
+                    f"{previous} and {occupation}"
+                )
+            occupations[key] = occupation
+    return occupations
+
+
+def _eigenvalues_from_mo_file(path: Path) -> list[tuple[int, str, float]]:
+    orbitals: list[tuple[int, str, float]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = _EIGENVALUE_RE.match(line)
+        if match is None:
+            continue
+        orbitals.append(
+            (
+                int(match.group(1)),
+                match.group(2).lower(),
+                _parse_fortran_float(match.group(3)),
+            )
+        )
+    return orbitals
+
+
+def parse_turbomole_orbital_energies(directory: str | Path = "."):
+    """Build the orbital table consumed by ``QMResult.set_values_from_orbital_energies_dataframe``.
+
+    Occupations come from ``$closed shells`` / ``$open shells`` for ``mos``, and
+    from ``$alpha shells`` / ``$beta shells`` for unrestricted ``alpha`` and
+    ``beta`` files. Orbitals not listed in those shells are virtual.
+    Returns None when no MO file is present.
+    """
+    import pandas as pd
+
+    root = Path(directory)
+    control_path = root / "control"
+    if not control_path.is_file():
+        raise ValueError("control file is required to assign TURBOMOLE orbital occupations")
+    control_text = control_path.read_text(encoding="utf-8", errors="replace")
+
+    alpha = root / "alpha"
+    beta = root / "beta"
+    mos = root / "mos"
+    if alpha.is_file() or beta.is_file():
+        sources = []
+        if alpha.is_file():
+            sources.append((alpha, ["alpha shells"]))
+        if beta.is_file():
+            sources.append((beta, ["beta shells"]))
+    elif mos.is_file():
+        sources = [(mos, ["closed shells", "open shells"])]
+    else:
+        return None
+
+    records = []
+    for path, groups in sources:
+        eigenvalues = _eigenvalues_from_mo_file(path)
+        if not eigenvalues:
+            raise ValueError(f"{path.name} contains no orbital eigenvalues")
+        shell_lines: list[str] = []
+        found_group = False
+        for group in groups:
+            body = _control_group_body(control_text, group)
+            if body is None:
+                continue
+            found_group = True
+            shell_lines.extend(body)
+        if not found_group:
+            raise ValueError(
+                f"Cannot assign occupations for {path.name}: "
+                f"missing {', '.join('$' + group for group in groups)} in control"
+            )
+        occupations = _occupations_from_shells(shell_lines)
+        if not occupations:
+            raise ValueError(f"No orbital occupations parsed for {path.name}")
+        for orbital_index, irrep, energy in eigenvalues:
+            occupation = occupations.get((irrep, orbital_index), 0.0)
+            records.append(
+                {
+                    "occupation": occupation,
+                    "energy_hartree": energy,
+                    "irrep": irrep,
+                    "index": orbital_index,
+                }
+            )
+
+    records.sort(key=lambda row: (row["energy_hartree"], row["irrep"], row["index"]))
+    return pd.DataFrame(
+        [
+            {
+                "orbital_no": number,
+                "occupation": row["occupation"],
+                "energy_hartree": row["energy_hartree"],
+                "energy_ev": row["energy_hartree"] * _HARTREE_TO_EV,
+                "orbital_type": "occupied" if row["occupation"] > 0 else "virtual",
+            }
+            for number, row in enumerate(records, start=1)
+        ]
+    )
 
 
 def _rms(values: list[float]) -> float:

@@ -666,25 +666,24 @@ async def test_collect_turbomole_restart_files(tmp_path, monkeypatch):
     ):
         await _collect_turbomole_restart_files(node_runner, qm_result)
 
-    runner_files = {fs.name for fs in node_runner.files}
     result_files = {fs.name for fs in qm_result.files}
 
-    assert runner_files == result_files
-    assert "control" in runner_files
-    assert "coord" in runner_files
-    assert "basis" in runner_files
-    assert "auxbasis" in runner_files
-    assert "mos" in runner_files
-    assert "energy" in runner_files
-    assert "gradient" in runner_files
-    assert "hessapprox" in runner_files
-    assert "optinfo" in runner_files
-    assert "final_geometry.xyz" in runner_files
-    assert all(fs.in_memory is False for fs in node_runner.files)
+    assert node_runner.files == []
+    assert "control" in result_files
+    assert "coord" in result_files
+    assert "basis" in result_files
+    assert "auxbasis" in result_files
+    assert "mos" in result_files
+    assert "energy" in result_files
+    assert "gradient" in result_files
+    assert "hessapprox" in result_files
+    assert "optinfo" in result_files
+    assert "final_geometry.xyz" in result_files
+    assert all(fs.in_memory is False for fs in qm_result.files)
 
-    # Info files must NOT be in runner.files
-    assert "job.last" not in runner_files
-    assert "turbomole_exe_c010.log" not in runner_files
+    # Info files must NOT be in the QMResult files
+    assert "job.last" not in result_files
+    assert "turbomole_exe_c010.log" not in result_files
 
 
 def test_record_iteration_logs_energy_gradient_and_timings(tmp_path):

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from molecular_qm_models.molecule import MoleculeList
+from molecular_qm_models.molecule import Molecule, MoleculeList
 from molecular_qm_models.qm_result import QMResult
 from molecular_qm_turbomole.lib.control_utils import append_control_groups
 from molecular_qm_turbomole.lib.opt_artifacts import (
@@ -35,6 +35,7 @@ from molecular_qm_turbomole.lib.input_writer import (
 )
 from molecular_qm_turbomole.lib.output_parser import (
     TurbomoleOutputParser,
+    parse_turbomole_orbital_energies,
     require_converged_ground_state,
     require_turbomole_normal_termination,
     write_final_geometry_xyz,
@@ -220,7 +221,9 @@ def _collect_output_files() -> list[str]:
     return [name for name in OUTPUT_FILES if Path(name).exists()]
 
 
-def _append_artifact_file(node_runner, path: Path, *, in_memory: bool, info_only: bool = False):
+def _append_artifact_file(
+    node_runner, path: Path, *, in_memory: bool, info_only: bool = False, attach: bool = True
+):
     if node_runner is None:
         raise ValueError("node_runner is required")
     if path is None:
@@ -235,7 +238,7 @@ def _append_artifact_file(node_runner, path: Path, *, in_memory: bool, info_only
         name = getattr(fs, "name", None)
         if name:
             names.add(name)
-    if path.name in names:
+    if attach and path.name in names:
         return None
     if not hasattr(node_runner, "files") or node_runner.files is None:
         node_runner.files = []
@@ -249,6 +252,8 @@ def _append_artifact_file(node_runner, path: Path, *, in_memory: bool, info_only
         secure_source=True,
         task_id=task_id,
     )
+    if not attach:
+        return file_stack
     if not info_only:
         node_runner.files.append(file_stack)
     else:
@@ -261,7 +266,7 @@ def _append_artifact_file(node_runner, path: Path, *, in_memory: bool, info_only
 async def _collect_turbomole_restart_files(
     node_runner, qm_result: Optional[QMResult] = None
 ) -> None:
-    """Attach Turbomole restart files to node_runner.files and qm_result.files."""
+    """Attach restart files to QMResult.files, or to node_runner.files when the run has no result."""
     already_result = (
         {getattr(fs, "name", None) for fs in getattr(qm_result, "files", []) or []}
         if qm_result is not None
@@ -270,8 +275,14 @@ async def _collect_turbomole_restart_files(
 
     for fname in TURBOMOLE_RESTART_FILES:
         try:
+            if qm_result is not None and fname in already_result:
+                continue
             file_stack = _append_artifact_file(
-                node_runner, Path(fname), in_memory=False, info_only=False
+                node_runner,
+                Path(fname),
+                in_memory=False,
+                info_only=False,
+                attach=qm_result is None,
             )
             if file_stack is None:
                 continue
@@ -280,9 +291,10 @@ async def _collect_turbomole_restart_files(
                     await context.db.save(file_stack)
             except Exception:
                 pass
-            if qm_result is not None and fname not in already_result:
+            if qm_result is not None:
                 qm_result.files.append(file_stack)
                 already_result.add(fname)
+                node_runner.info(f"Added {fname} to QMResult.files")
         except Exception as e:
             node_runner.warning(f"Failed to attach Turbomole restart file {fname}: {e}")
 
@@ -490,9 +502,8 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         qm_input (TurbomoleQMInput2): Calculation settings and molecule.
 
     SimstackResult:
-        result (QMResult): Final energy, structure, and convergence status.
-        files (List[FileStack]): Restart and output files that exist on disk.
-            Returned on success and on failure.
+        result (QMResult): Final state energies, final molecule, HOMO/LUMO,
+            orbital energies, convergence status, and restart files.
         info_files (List[FileStack]): Logs and diagnostics that exist on disk,
             including node_runner.log. Returned on success and on failure.
         hyperpolarizability (SimpleTable): Frequency-pair beta_zzz in 10^-30 esu (z-dipole frame).
@@ -625,26 +636,62 @@ async def turbomole2(qm_input: TurbomoleQMInput2, **kwargs) -> SimstackResult:
         if tout.final_energy is None:
             _fail(node_runner, "Failed to parse energy from Turbomole output")
 
-        molecule_list = MoleculeList()
-        if qm_input.optimization and tout.final_structure:
-            molecule_list.add_molecule(tout.final_structure)
+        geometry = tout.final_structure if tout.final_structure is not None else qm_input.molecule
+        if geometry is None:
+            raise ValueError("TURBOMOLE finished without a final molecule")
+        final_molecule = Molecule.from_molecule(geometry)
+        if (
+            tout.final_structure is not None
+            and qm_input.molecule is not None
+        ):
+            if final_molecule.smiles is None and qm_input.molecule.smiles is not None:
+                final_molecule.smiles = qm_input.molecule.smiles
+            if final_molecule.formula is None and qm_input.molecule.formula is not None:
+                final_molecule.formula = qm_input.molecule.formula
+        if context.db is not None:
+            try:
+                saved_molecule = await context.db.save(final_molecule)
+                if isinstance(saved_molecule, Molecule):
+                    final_molecule = saved_molecule
+            except Exception as exc:
+                node_runner.warning(f"Failed to save final molecule: {exc}")
 
-        written_xyz = write_final_geometry_xyz(tout.final_structure)
+        molecule_list = MoleculeList()
+        if qm_input.optimization:
+            molecule_list.add_molecule(final_molecule)
+
+        written_xyz = write_final_geometry_xyz(final_molecule)
         if written_xyz is not None:
             node_runner.info(f"Wrote final geometry XYZ file: {written_xyz}")
 
+        if not tout.energies:
+            raise ValueError("TURBOMOLE finished without a final state energy")
         qm_result = QMResult(
             scf_converged=tout.properly_terminated,
             final_energy=tout.final_energy,
             energies=tout.energies,
-            final_structure=tout.final_structure if tout.final_structure else qm_input.molecule,
+            final_structure=final_molecule,
             structures=molecule_list,
             vibrational_frequencies=tout.vibrational_frequencies,
             task_status=TaskStatus.COMPLETED,
         )
         node_runner.result = qm_result
+        orbital_df = parse_turbomole_orbital_energies(".")
+        if orbital_df is None:
+            raise ValueError(
+                "TURBOMOLE did not write orbital eigenvalues (mos, alpha, or beta)."
+            )
+        qm_result.set_values_from_orbital_energies_dataframe(orbital_df)
+        if qm_result.HOMO_value_eV is None or qm_result.LUMO_value_eV is None:
+            raise ValueError("Failed to determine HOMO/LUMO from TURBOMOLE orbitals")
+        if (
+            qm_result.orbital_energies_table_eV is None
+            or qm_result.orbital_energies_hartree is None
+        ):
+            raise ValueError("Failed to build TURBOMOLE orbital energy tables")
         node_runner.info(
-            f"turbomole2 completed successfully with energy: {tout.final_energy}"
+            f"turbomole2 completed successfully with energy: {tout.final_energy}, "
+            f"HOMO={qm_result.HOMO_value_eV} eV, LUMO={qm_result.LUMO_value_eV} eV"
         )
     except Exception as exc:
         failure_message = _with_runner_output(
