@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.28.0 (2026-11-02)
+
+### Features
+
+- Add turbomole3 that runs preoptimizer steps then turbomole2
+  ([`6a041ed`](https://github.com/simstack/molecular_qm_turbomole/commit/6a041ed5b461dc956f3116b055eb191cc257aa07))
+
+
 ## v0.27.1 (2026-11-02)
 
 ### Bug Fixes
