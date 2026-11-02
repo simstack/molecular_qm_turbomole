@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v0.27.0 (2026-11-02)
+
+### Bug Fixes
+
+- Require TurbomoleQMInput2 for the multistep optimizer
+  ([`e1ae75e`](https://github.com/simstack/molecular_qm_turbomole/commit/e1ae75ef5a33562d2a83bdbce0c38b25e8b08940))
+
+### Features
+
+- Overwrite QM functional and dispersion in hyperpolarizibility2
+  ([`e85bbd1`](https://github.com/simstack/molecular_qm_turbomole/commit/e85bbd1e1dc5c3c1173e13182c82dd330f93320d))
+
+
 ## v0.26.0 (2026-10-24)
 
 
