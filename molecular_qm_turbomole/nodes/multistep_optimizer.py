@@ -4,10 +4,8 @@ from typing import Any, List, Optional, Tuple, Union
 from odmantic import ObjectId
 
 from molecular_qm_models import (
-    GridType,
     Molecule,
     OptimizationAccuracy,
-    QMInput,
     QMResult,
     SCFAccuracy,
 )
@@ -226,7 +224,7 @@ async def _persist_semiempirical_input(
 
 
 def _qm_input_for_step(
-    base_input: Union[TurbomoleQMInput2, QMInput],
+    base_input: TurbomoleQMInput2,
     step: OptimizationStepInput,
     molecule: Molecule,
     frequencies: bool,
@@ -234,50 +232,32 @@ def _qm_input_for_step(
     scfiterlimit: int,
 ) -> TurbomoleQMInput2:
     """Build TurbomoleQMInput2 for one optimization step, inheriting max opt cycles and scf steps."""
-    if isinstance(base_input, TurbomoleQMInput2):
-        copied = base_input.model_copy(
-            deep=True,
-            update={
-                "id": ObjectId(),
-                "molecule": molecule,
-                "optimization": True,
-                "frequencies": frequencies,
-                "basis_set": step.basis_set,
-                "functional": step.functional,
-                "dispersion_correction": step.dispersion_correction,
-                "gridsize": step.grid,
-                "max_opt_cycles": max_opt_cycles,
-                "scfiterlimit": scfiterlimit,
-                "scfconv": _scfconv_from_accuracy(
-                    step.scf_accuracy,
-                    step.optimization_accuracy,
-                    default_conv=base_input.scfconv,
-                ),
-                "field_name": "TurbomoleQMInput2",
-            },
+    if not isinstance(base_input, TurbomoleQMInput2):
+        raise ValueError(
+            "multistep_optimizer qm_input must be TurbomoleQMInput2, "
+            f"got {type(base_input).__name__}"
         )
-    else:
-        # Template is generic QMInput
-        copied = TurbomoleQMInput2(
-            molecule=molecule,
-            name=f"turbomole_{step.functional.functional.value}_{step.basis_set.basis_set}",
-            charge=base_input.charge,
-            multiplicity=base_input.multiplicity,
-            optimization=True,
-            frequencies=frequencies,
-            basis_set=step.basis_set,
-            functional=step.functional,
-            dispersion_correction=step.dispersion_correction,
-            gridsize=step.grid,
-            max_opt_cycles=max_opt_cycles,
-            scfiterlimit=scfiterlimit,
-            scfconv=_scfconv_from_accuracy(
+    return base_input.model_copy(
+        deep=True,
+        update={
+            "id": ObjectId(),
+            "molecule": molecule,
+            "optimization": True,
+            "frequencies": frequencies,
+            "basis_set": step.basis_set,
+            "functional": step.functional,
+            "dispersion_correction": step.dispersion_correction,
+            "gridsize": step.grid,
+            "max_opt_cycles": max_opt_cycles,
+            "scfiterlimit": scfiterlimit,
+            "scfconv": _scfconv_from_accuracy(
                 step.scf_accuracy,
                 step.optimization_accuracy,
-                default_conv=8,
+                default_conv=base_input.scfconv,
             ),
-        )
-    return copied
+            "field_name": "TurbomoleQMInput2",
+        },
+    )
 
 
 def _append_step_row(
@@ -327,7 +307,7 @@ def _append_step_row(
 
 @node(parameters=parameters)
 async def multistep_optimizer(
-    qm_input: Union[TurbomoleQMInput2, QMInput],
+    qm_input: TurbomoleQMInput2,
     preopt: PreOptimizerInput,
     **kwargs,
 ) -> SimstackResult:
@@ -341,7 +321,7 @@ async def multistep_optimizer(
     Frequencies from ``qm_input`` run only on the last step.
 
     Parameters:
-        qm_input (TurbomoleQMInput2 | QMInput): Molecule and shared QM settings used as copy template.
+        qm_input (TurbomoleQMInput2): Molecule and shared QM settings used as copy template.
         preopt (PreOptimizerInput): Semiempirical pre-opt settings and sequence of DFT optimization steps.
 
     Called Nodes:
