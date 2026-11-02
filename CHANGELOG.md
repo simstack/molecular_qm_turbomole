@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v0.27.1 (2026-11-02)
+
+### Bug Fixes
+
+- Return turbomole2 outputs and logs when a run fails
+  ([`207616a`](https://github.com/simstack/molecular_qm_turbomole/commit/207616aab3080f76f8760de1539463788bd49939))
+
+
 ## v0.27.0 (2026-11-02)
 
 ### Bug Fixes
