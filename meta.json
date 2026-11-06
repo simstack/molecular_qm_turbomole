@@ -1,0 +1,18 @@
+{
+  "title": "Molecular QM TURBOMOLE capabilities for SimStack",
+  "workflow_environment": "SimStack",
+  "description": "A SimStack capability package containing molecular input models and workflow nodes for TURBOMOLE. The bundle includes single-point calculations, geometry optimization, ricc2 calculations, semiempirical calculations, and multistep optimization workflows, together with input-writing and output-parsing utilities.",
+  "authors": [
+    "Wolfgang Wenzel",
+    "Phillip Dullinger"
+  ],
+  "release": "v0.28.4",
+  "keywords": [
+    "SimStack",
+    "TURBOMOLE",
+    "quantum chemistry",
+    "geometry optimization",
+    "ricc2",
+    "workflow nodes"
+  ]
+}
